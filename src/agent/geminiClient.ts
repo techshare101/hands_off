@@ -1,0 +1,280 @@
+// 🧠 GEMINI INTEGRATION AGENT — Enhanced Gemini Client
+// Production-ready client with proper error handling and response validation
+
+import { getPromptForTask, validateGeminiResponse, GeminiResponse, ActionSchema } from './prompts';
+
+// Use Gemini 2.0 Flash - stable and available
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+// Log model on load
+console.log('[Gemini] Using model:', GEMINI_MODEL);
+
+export interface AnalysisRequest {
+  screenshot: string;
+  task: string;
+  taskType?: 'general' | 'form' | 'research' | 'cleanup';
+  history?: ActionSchema[];
+  pageUrl?: string;
+  pageTitle?: string;
+}
+
+export interface AnalysisResult {
+  success: boolean;
+  response?: GeminiResponse;
+  rawText?: string;
+  error?: string;
+  latencyMs?: number;
+}
+
+export class GeminiClient {
+  private apiKey: string | null = null;
+  private requestCount = 0;
+  private lastRequestTime = 0;
+  private minRequestInterval = 200; // Reduced for faster responses
+  private requestTimeout = 30000; // 30 second timeout
+  private abortController: AbortController | null = null;
+
+  constructor() {
+    this.loadApiKey();
+  }
+
+  private async loadApiKey(): Promise<void> {
+    try {
+      const result = await chrome.storage.local.get('geminiApiKey');
+      this.apiKey = result.geminiApiKey || null;
+      
+      // Fallback to env variable if no stored key (for development)
+      if (!this.apiKey && typeof import.meta !== 'undefined') {
+        const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+        if (envKey && envKey !== 'your_api_key_here') {
+          this.apiKey = envKey;
+          // Save to storage for future use
+          await chrome.storage.local.set({ geminiApiKey: envKey });
+          console.log('[GeminiClient] Loaded API key from environment');
+        }
+      }
+    } catch {
+      console.warn('[GeminiClient] Failed to load API key from storage');
+    }
+  }
+
+  async setApiKey(key: string): Promise<void> {
+    this.apiKey = key;
+    await chrome.storage.local.set({ geminiApiKey: key });
+  }
+
+  async hasApiKey(): Promise<boolean> {
+    if (!this.apiKey) {
+      await this.loadApiKey();
+    }
+    return !!this.apiKey;
+  }
+
+  async analyze(request: AnalysisRequest): Promise<AnalysisResult> {
+    const startTime = Date.now();
+
+    // Ensure API key is loaded
+    if (!this.apiKey) {
+      await this.loadApiKey();
+      if (!this.apiKey) {
+        return { success: false, error: 'API key not configured. Open settings to add your Gemini API key.' };
+      }
+    }
+
+    // Rate limiting
+    const timeSinceLastRequest = Date.now() - this.lastRequestTime;
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      await this.sleep(this.minRequestInterval - timeSinceLastRequest);
+    }
+
+    try {
+      // Prepare image data
+      const imageData = request.screenshot.replace(/^data:image\/\w+;base64,/, '');
+      
+      // Build context
+      const systemPrompt = getPromptForTask(request.taskType || 'general');
+      const historyContext = this.buildHistoryContext(request.history);
+      const pageContext = this.buildPageContext(request.pageUrl, request.pageTitle);
+
+      const userPrompt = `## CURRENT TASK
+${request.task}
+
+${pageContext}
+${historyContext}
+
+Analyze the screenshot and determine the next action. Respond with valid JSON only.`;
+
+      // Make API request with timeout
+      this.abortController = new AbortController();
+      const timeoutId = setTimeout(() => this.abortController?.abort(), this.requestTimeout);
+      
+      const response = await fetch(`${GEMINI_API_ENDPOINT}?key=${this.apiKey}`, {
+        signal: this.abortController.signal,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: `${systemPrompt}\n\n${userPrompt}` },
+                {
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: imageData,
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            topK: 32,
+            topP: 1,
+            maxOutputTokens: 2048,
+          },
+          safetySettings: [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          ],
+        }),
+      });
+
+      clearTimeout(timeoutId);
+      this.lastRequestTime = Date.now();
+      this.requestCount++;
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[GeminiClient] API error:', response.status, errorText);
+        
+        if (response.status === 429) {
+          return { success: false, error: 'Rate limit exceeded. Please wait a moment.' };
+        }
+        if (response.status === 401 || response.status === 403) {
+          return { success: false, error: 'Invalid API key. Please check your settings.' };
+        }
+        return { success: false, error: `API error: ${response.status}` };
+      }
+
+      const data = await response.json();
+      const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!textContent) {
+        return { success: false, error: 'No response from Gemini' };
+      }
+
+      // Parse and validate response
+      const parsed = this.parseResponse(textContent);
+      if (!parsed) {
+        return { 
+          success: false, 
+          error: 'Invalid response format from Gemini',
+          rawText: textContent,
+        };
+      }
+
+      const validated = validateGeminiResponse(parsed);
+      if (!validated) {
+        return { 
+          success: false, 
+          error: 'Response validation failed',
+          rawText: textContent,
+        };
+      }
+
+      return {
+        success: true,
+        response: validated,
+        rawText: textContent,
+        latencyMs: Date.now() - startTime,
+      };
+
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('[GeminiClient] Request timed out after', this.requestTimeout, 'ms');
+        return {
+          success: false,
+          error: 'Request timed out. Check your connection.',
+          latencyMs: Date.now() - startTime,
+        };
+      }
+      console.error('[GeminiClient] Analysis error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        latencyMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  abort(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+  }
+
+  private buildHistoryContext(history?: ActionSchema[]): string {
+    if (!history?.length) return '';
+    
+    const recentActions = history.slice(-5); // Last 5 actions
+    const formatted = recentActions.map((action, i) => {
+      return `${i + 1}. ${action.type}${action.target ? ` on "${action.target}"` : ''}`;
+    }).join('\n');
+    
+    return `## PREVIOUS ACTIONS (last ${recentActions.length})
+${formatted}`;
+  }
+
+  private buildPageContext(url?: string, title?: string): string {
+    if (!url && !title) return '';
+    
+    return `## PAGE CONTEXT
+URL: ${url || 'Unknown'}
+Title: ${title || 'Unknown'}`;
+  }
+
+  private parseResponse(text: string): Record<string, unknown> | null {
+    try {
+      // Try to extract JSON from the response
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[1]);
+      }
+
+      // Try to find raw JSON object
+      const objectMatch = text.match(/\{[\s\S]*\}/);
+      if (objectMatch) {
+        return JSON.parse(objectMatch[0]);
+      }
+
+      return null;
+    } catch {
+      console.error('[GeminiClient] Failed to parse response:', text);
+      return null;
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  getStats(): { requestCount: number } {
+    return { requestCount: this.requestCount };
+  }
+}
+
+// Singleton instance
+let clientInstance: GeminiClient | null = null;
+
+export function getGeminiClient(): GeminiClient {
+  if (!clientInstance) {
+    clientInstance = new GeminiClient();
+  }
+  return clientInstance;
+}

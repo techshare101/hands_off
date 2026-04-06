@@ -1,0 +1,24 @@
+/* HandOff content script styles */
+/* Minimal footprint - only used for visual feedback during agent actions */
+
+.handoff-highlight {
+  outline: 3px solid #6366f1 !important;
+  outline-offset: 2px;
+  transition: outline 0.2s ease;
+}
+
+.handoff-clicking {
+  animation: handoff-pulse 0.3s ease-out;
+}
+
+@keyframes handoff-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(99, 102, 241, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+}
