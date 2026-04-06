@@ -50,3 +50,7 @@ export { hybridBrain } from './hybridBrain';
 export type { ExecutionMode, ModeDecision, ExecutionContext } from './hybridBrain';
 
 export { MolmoWebClient, getMolmoClient } from './molmoClient';
+
+export { OpenAICompatClient, OpenAIClient, GroqClient, DeepSeekClient, QwenClient, MistralClient } from './openAICompatClient';
+export { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from './openAICompatClient';
+export { AnthropicClient, ANTHROPIC_MODELS } from './anthropicClient';

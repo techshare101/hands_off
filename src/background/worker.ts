@@ -5,6 +5,8 @@ import { AgentCore, AgentConfig, AgentStepEvent } from '../agent/agentCore';
 import { GeminiClient } from '../agent/geminiClient';
 import { OpenRouterClient } from '../agent/openRouterClient';
 import { RouteLLMClient } from '../agent/routeLLMClient';
+import { OpenAIClient, GroqClient, DeepSeekClient, QwenClient, MistralClient } from '../agent/openAICompatClient';
+import { AnthropicClient } from '../agent/anthropicClient';
 import { ProposedAction } from '../agent/stateMachine';
 import { usageTracker } from '../agent/usageTracker';
 import { executionMemory } from '../agent/executionMemory';
@@ -31,14 +33,28 @@ let pendingApproval: {
 const geminiClient = new GeminiClient();
 const openRouterClient = new OpenRouterClient();
 const routeLLMClient = new RouteLLMClient();
+const openaiClient = new OpenAIClient();
+const anthropicClient = new AnthropicClient();
+const groqClient = new GroqClient();
+const deepseekClient = new DeepSeekClient();
+const qwenClient = new QwenClient();
+const mistralClient = new MistralClient();
 
 // Get the active LLM client based on settings
 async function getActiveLLMClient(): Promise<LLMClient> {
   const result = await chrome.storage.local.get('llmProvider');
   const provider = result.llmProvider || 'gemini';
-  if (provider === 'openrouter') return openRouterClient;
-  if (provider === 'routellm') return routeLLMClient;
-  return geminiClient;
+  switch (provider) {
+    case 'openrouter': return openRouterClient;
+    case 'routellm': return routeLLMClient;
+    case 'openai': return openaiClient;
+    case 'anthropic': return anthropicClient;
+    case 'groq': return groqClient;
+    case 'deepseek': return deepseekClient;
+    case 'qwen': return qwenClient;
+    case 'mistral': return mistralClient;
+    default: return geminiClient;
+  }
 }
 
 // Open side panel when extension icon is clicked
