@@ -50,20 +50,20 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [models, setModels] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
-  const [molmoEnabled, setMolmoEnabled] = useState(false);
-  const [molmoEndpoint, setMolmoEndpoint] = useState('http://127.0.0.1:8001');
-  const [molmoStatus, setMolmoStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
+  const [arkEnabled, setArkEnabled] = useState(false);
+  const [arkEndpoint, setArkEndpoint] = useState('http://127.0.0.1:8001');
+  const [arkStatus, setArkStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
 
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'molmoweb_enabled', 'molmoweb_endpoint'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
     });
     chrome.storage.local.get(allStorageKeys).then((result) => {
       if (result.llmProvider) setProvider(result.llmProvider);
-      if (result.molmoweb_enabled) setMolmoEnabled(result.molmoweb_enabled);
-      if (result.molmoweb_endpoint) setMolmoEndpoint(result.molmoweb_endpoint);
+      if (result.ark_enabled) setArkEnabled(result.ark_enabled);
+      if (result.ark_endpoint) setArkEndpoint(result.ark_endpoint);
       const loadedKeys: Record<string, string> = {};
       const loadedModels: Record<string, string> = {};
       Object.entries(PROVIDER_META).forEach(([, meta]) => {
@@ -78,8 +78,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const handleSave = async () => {
     const data: Record<string, unknown> = {
       llmProvider: provider,
-      molmoweb_enabled: molmoEnabled,
-      molmoweb_endpoint: molmoEndpoint,
+      ark_enabled: arkEnabled,
+      ark_endpoint: arkEndpoint,
       ...keys,
       ...models,
     };
@@ -88,15 +88,15 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const checkMolmoServer = async () => {
-    setMolmoStatus('checking');
+  const checkArkServer = async () => {
+    setArkStatus('checking');
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'MOLMO_HEALTH_CHECK', payload: { endpoint: molmoEndpoint } });
-      setMolmoStatus(res?.available ? 'online' : 'offline');
+      const res = await chrome.runtime.sendMessage({ type: 'ARK_HEALTH_CHECK', payload: { endpoint: arkEndpoint } });
+      setArkStatus(res?.available ? 'online' : 'offline');
     } catch {
-      setMolmoStatus('offline');
+      setArkStatus('offline');
     }
-    setTimeout(() => setMolmoStatus('unknown'), 5000);
+    setTimeout(() => setArkStatus('unknown'), 5000);
   };
 
   const meta = PROVIDER_META[provider];
@@ -176,46 +176,46 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
             </div>
           )}
 
-          {/* MolmoWeb Vision Engine */}
+          {/* Ark Vision Engine */}
           <div className="border-t border-handoff-dark pt-4">
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-white flex items-center gap-2">
                 <Eye className="w-4 h-4 text-purple-400" />
-                MolmoWeb Vision Engine
+                Ark Vision Engine
               </label>
               <button
-                onClick={() => setMolmoEnabled(!molmoEnabled)}
-                className={`relative w-10 h-5 rounded-full transition-colors ${molmoEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+                onClick={() => setArkEnabled(!arkEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${arkEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
               >
-                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${molmoEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${arkEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
             <p className="text-xs text-handoff-muted mb-3">
-              Optional AI2 open-weight vision agent. Falls back to selected LLM if unreachable.
+              Proprietary vision engine for screenshot-based perception. Falls back to selected LLM if unreachable.
             </p>
-            {molmoEnabled && (
+            {arkEnabled && (
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    value={molmoEndpoint}
-                    onChange={(e) => setMolmoEndpoint(e.target.value)}
+                    value={arkEndpoint}
+                    onChange={(e) => setArkEndpoint(e.target.value)}
                     placeholder="http://127.0.0.1:8001"
                     className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   />
                   <button
-                    onClick={checkMolmoServer}
-                    disabled={molmoStatus === 'checking'}
+                    onClick={checkArkServer}
+                    disabled={arkStatus === 'checking'}
                     className={`px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                      molmoStatus === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
-                      molmoStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
-                      molmoStatus === 'checking' ? 'bg-purple-500/20 text-purple-400 animate-pulse' :
+                      arkStatus === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
+                      arkStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
+                      arkStatus === 'checking' ? 'bg-purple-500/20 text-purple-400 animate-pulse' :
                       'bg-handoff-dark text-handoff-muted hover:text-white'
                     }`}
                   >
-                    {molmoStatus === 'checking' ? 'Testing...' :
-                     molmoStatus === 'online' ? 'Online' :
-                     molmoStatus === 'offline' ? 'Offline' : 'Test'}
+                    {arkStatus === 'checking' ? 'Testing...' :
+                     arkStatus === 'online' ? 'Online' :
+                     arkStatus === 'offline' ? 'Offline' : 'Test'}
                   </button>
                 </div>
               </div>

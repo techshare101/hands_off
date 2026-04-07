@@ -2,12 +2,12 @@
 
 **Hand work off to an AI agent that actually uses the web for you — and gets smarter every run.**
 
-HandOff is a Chrome extension that combines Gemini Flash and [MolmoWeb](https://github.com/allenai/molmoweb) (AI2's open visual web agent) with a self-learning engine. It sees, clicks, types, and verifies — and remembers what worked, what failed, and how to do it better next time.
+HandOff is a Chrome extension that combines 9 LLM providers and the Ark Vision Engine with a self-learning engine. It sees, clicks, types, and verifies — and remembers what worked, what failed, and how to do it better next time.
 
 ## Features
 
 - 🖱️ **Visual Computer Use** — AI sees your screen and interacts with any website
-- 👁️ **MolmoWeb Vision Engine** — Optional AI2 open-weight visual agent for screenshot-based perception
+- 👁️ **Ark Vision Engine** — Proprietary vision engine for screenshot-based perception
 - 🧠 **Self-Learning Engine** — Execution memory, failure analysis, and auto-skill generation
 - ⚡ **Auto-Skills** — Repeated workflows become reusable skills with reliability tracking
 - 🔄 **Hybrid Brain** — Adaptive mode switching between DOM, Vision, Memory, and Skill execution
@@ -22,7 +22,7 @@ HandOff is a Chrome extension that combines Gemini Flash and [MolmoWeb](https://
 | **Memory** | Persistent — remembers every run | Stateless — forgets everything |
 | **Failures** | Analyzes root cause, generates fix strategies, never repeats same mistake | Retries blindly |
 | **Skills** | 3+ successful runs → auto-generates reusable skill | Manual scripting |
-| **Vision** | MolmoWeb (open, self-hosted) + Gemini (cloud) with automatic fallback | Single model, no fallback |
+| **Vision** | Ark Vision (self-hosted) + 9 LLM providers (cloud) with automatic fallback | Single model, no fallback |
 | **Transparency** | Full dashboard: skills, site profiles, failure analysis | Black box |
 
 ## Use Cases
@@ -60,7 +60,7 @@ npm run build
 1. Click the HandOff extension icon
 2. Open Settings (gear icon)
 3. Enter your [Gemini API key](https://aistudio.google.com/apikey)
-4. *(Optional)* Enable MolmoWeb and set your model server endpoint
+4. *(Optional)* Enable Ark Vision Engine and set your server endpoint
 5. Save
 
 ### 5. Start Using
@@ -70,26 +70,13 @@ npm run build
 3. Describe what you want done
 4. Watch the agent work — and learn!
 
-## MolmoWeb Setup (Optional)
+## Ark Vision Engine (Optional)
 
-MolmoWeb gives HandOff a dedicated open-weight vision model for screenshot-based perception. It's optional — Gemini works great on its own, but MolmoWeb adds a self-hosted, privacy-first vision layer.
+Ark Vision gives HandOff a dedicated vision model for screenshot-based perception. It's optional — any LLM provider works great on its own, but Ark adds a self-hosted, privacy-first vision layer.
 
-```bash
-# Clone MolmoWeb
-git clone https://github.com/allenai/molmoweb.git
-cd molmoweb
+In HandOff Settings: enable **Ark Vision Engine** → set your server endpoint → click **Test** to verify.
 
-# Download weights (4B model, ~8GB)
-bash scripts/download_weights.sh allenai/MolmoWeb-4B-Native
-
-# Start the model server
-bash scripts/start_server.sh ./checkpoints/MolmoWeb-4B-Native
-# Server runs at http://127.0.0.1:8001
-```
-
-Then in HandOff Settings: enable **MolmoWeb Vision Engine** → set endpoint → click **Test** to verify.
-
-If the server goes down mid-task, HandOff automatically falls back to Gemini.
+If the server goes down mid-task, HandOff automatically falls back to the selected LLM provider.
 
 ## Development
 
@@ -111,12 +98,12 @@ Chrome Extension (Manifest V3)
 │   ├─ Action Feed (with learning step indicators)
 │   ├─ Controls (Pause/Resume/Stop)
 │   ├─ Learning Panel (skills, memory, site profiles)
-│   └─ Settings (LLM config + MolmoWeb toggle)
+│   └─ Settings (LLM config + Ark Vision toggle)
 │
 ├─ Background Worker
 │   ├─ Agent Core (orchestration + state machine)
 │   ├─ Gemini Client (cloud LLM)
-│   ├─ MolmoWeb Client (self-hosted vision model)
+│   ├─ Ark Vision Client (self-hosted vision engine)
 │   └─ Self-Learning Engine
 │       ├─ Execution Memory (traces + patterns)
 │       ├─ Failure Learning (analysis + fix strategies)
@@ -145,7 +132,7 @@ Task ends
 
 ## Tech Stack
 
-- **AI**: Gemini Flash (cloud) + MolmoWeb (self-hosted, optional)
+- **AI**: 9 LLM providers + Ark Vision Engine (self-hosted, optional)
 - **UI**: React 18 + Tailwind CSS + Lucide Icons
 - **State**: Zustand
 - **Build**: Vite
@@ -156,7 +143,7 @@ Task ends
 
 - [x] Workflow saving & replay (Auto-Skills)
 - [x] Self-learning execution memory
-- [x] MolmoWeb vision integration
+- [x] Ark Vision Engine integration
 - [x] Failure analysis & recovery
 - [x] Hybrid Brain mode selection
 - [ ] Multi-tab support

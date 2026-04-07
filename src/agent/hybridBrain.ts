@@ -1,7 +1,7 @@
 // 🧬 HYBRID BRAIN — Adaptive execution engine with mode selection
 // Chooses between DOM mode, Vision mode, and Memory mode per action
 // DOM mode = fast + reliable when selectors exist
-// Vision mode = flexible for messy/dynamic UIs (MolmoWeb-style)
+// Vision mode = flexible for messy/dynamic UIs (Ark Vision)
 // Memory mode = instant replay from learned patterns
 // System picks automatically based on confidence + site history
 

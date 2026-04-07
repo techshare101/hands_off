@@ -1,17 +1,17 @@
-// 👁️ MOLMOWEB CLIENT — Vision-based web agent integration
-// Connects to a self-hosted MolmoWeb model server (POST /predict)
-// MolmoWeb takes screenshot + task → returns thought + browser action
+// 👁️ ARK VISION CLIENT — Vision-based web agent integration
+// Connects to a self-hosted Ark Vision server (POST /predict)
+// Ark takes screenshot + task → returns thought + browser action
 // Used as the "vision mode" provider in the Hybrid Brain
 
 import { ActionSchema, GeminiResponse } from './prompts';
 import { AnalysisRequest, AnalysisResult } from './geminiClient';
 
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:8001';
-const STORAGE_KEY_ENDPOINT = 'molmoweb_endpoint';
-const STORAGE_KEY_ENABLED = 'molmoweb_enabled';
+const STORAGE_KEY_ENDPOINT = 'ark_endpoint';
+const STORAGE_KEY_ENABLED = 'ark_enabled';
 
-// MolmoWeb raw response format
-interface MolmoWebRawResponse {
+// Ark Vision raw response format
+interface ArkRawResponse {
   thought?: string;
   action?: string;
   action_type?: string;
@@ -23,8 +23,8 @@ interface MolmoWebRawResponse {
   error?: string;
 }
 
-// MolmoWeb action types from the model
-type MolmoActionType =
+// Ark Vision action types from the model
+type ArkActionType =
   | 'click'
   | 'type'
   | 'scroll'
@@ -34,7 +34,7 @@ type MolmoActionType =
   | 'done'
   | 'message';
 
-export class MolmoWebClient {
+export class ArkVisionClient {
   private endpoint: string = DEFAULT_ENDPOINT;
   private enabled = false;
   private initialized = false;
@@ -116,7 +116,7 @@ export class MolmoWebClient {
   async analyze(request: AnalysisRequest): Promise<AnalysisResult> {
     if (!this.initialized) await this.loadConfig();
     if (!this.enabled) {
-      return { success: false, error: 'MolmoWeb is not enabled' };
+      return { success: false, error: 'Ark Vision is not enabled' };
     }
 
     const startTime = Date.now();
@@ -125,10 +125,10 @@ export class MolmoWebClient {
       // Strip data URL prefix if present
       const imageData = request.screenshot.replace(/^data:image\/\w+;base64,/, '');
 
-      // Build the prompt for MolmoWeb
+      // Build the prompt for Ark Vision
       const prompt = this.buildPrompt(request);
 
-      // Make request to MolmoWeb server
+      // Make request to Ark Vision server
       this.abortController = new AbortController();
       const timeoutId = setTimeout(() => this.abortController?.abort(), this.requestTimeout);
 
@@ -148,26 +148,26 @@ export class MolmoWebClient {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[MolmoWeb] Server error:', response.status, errorText);
+        console.error('[Ark] Server error:', response.status, errorText);
         return {
           success: false,
-          error: `MolmoWeb server error: ${response.status}`,
+          error: `Ark Vision server error: ${response.status}`,
           latencyMs: Date.now() - startTime,
         };
       }
 
-      const rawResponse: MolmoWebRawResponse = await response.json();
-      console.log('[MolmoWeb] Raw response:', rawResponse);
+      const rawResponse: ArkRawResponse = await response.json();
+      console.log('[Ark] Raw response:', rawResponse);
 
       if (rawResponse.error) {
         return {
           success: false,
-          error: `MolmoWeb model error: ${rawResponse.error}`,
+          error: `Ark Vision model error: ${rawResponse.error}`,
           latencyMs: Date.now() - startTime,
         };
       }
 
-      // Parse MolmoWeb response into HandOff's format
+      // Parse Ark response into HandOff's format
       const parsed = this.parseResponse(rawResponse, request);
 
       return {
@@ -180,16 +180,16 @@ export class MolmoWebClient {
       if (error instanceof Error && error.name === 'AbortError') {
         return {
           success: false,
-          error: 'MolmoWeb request timed out. Model server may be overloaded.',
+          error: 'Ark Vision request timed out. Model server may be overloaded.',
           latencyMs: Date.now() - startTime,
         };
       }
-      console.error('[MolmoWeb] Analysis error:', error);
+      console.error('[Ark] Analysis error:', error);
       return {
         success: false,
         error: error instanceof Error
-          ? `MolmoWeb connection failed: ${error.message}`
-          : 'MolmoWeb unknown error',
+          ? `Ark Vision connection failed: ${error.message}`
+          : 'Ark Vision unknown error',
         latencyMs: Date.now() - startTime,
       };
     }
@@ -227,9 +227,9 @@ export class MolmoWebClient {
 
   // ── Response Parsing ────────────────────────────────────────────
 
-  // MolmoWeb outputs: { thought, action_type, coordinate, text, key, url, direction }
+  // Ark outputs: { thought, action_type, coordinate, text, key, url, direction }
   // HandOff expects: GeminiResponse { observation, reasoning, action, confidence, ... }
-  private parseResponse(raw: MolmoWebRawResponse, _request: AnalysisRequest): GeminiResponse {
+  private parseResponse(raw: ArkRawResponse, _request: AnalysisRequest): GeminiResponse {
     const thought = raw.thought || '';
     const actionType = this.normalizeActionType(raw.action_type || raw.action || '');
 
@@ -237,7 +237,7 @@ export class MolmoWebClient {
     if (actionType === 'done' || actionType === 'message') {
       return {
         observation: thought || 'Task appears complete.',
-        reasoning: thought || 'MolmoWeb determined the task is done.',
+        reasoning: thought || 'Ark Vision determined the task is done.',
         action: null,
         confidence: 0.85,
         requiresApproval: false,
@@ -246,14 +246,14 @@ export class MolmoWebClient {
       };
     }
 
-    // Build action from MolmoWeb output
-    const action = this.buildAction(actionType as MolmoActionType, raw);
+    // Build action from Ark output
+    const action = this.buildAction(actionType as ArkActionType, raw);
 
     return {
       observation: thought || `Performing ${actionType}`,
-      reasoning: thought || `MolmoWeb visual analysis: ${actionType}`,
+      reasoning: thought || `Ark visual analysis: ${actionType}`,
       action,
-      confidence: action ? 0.75 : 0.3, // MolmoWeb doesn't output confidence, use reasonable default
+      confidence: action ? 0.75 : 0.3, // Ark doesn't output confidence, use reasonable default
       requiresApproval: this.shouldRequireApproval(action),
       isComplete: false,
       nextStep: thought || '',
@@ -262,7 +262,7 @@ export class MolmoWebClient {
 
   private normalizeActionType(raw: string): string {
     const lower = raw.toLowerCase().trim();
-    // Map MolmoWeb action names to HandOff action types
+    // Map Ark action names to HandOff action types
     const mapping: Record<string, string> = {
       click: 'click',
       type: 'type',
@@ -282,11 +282,11 @@ export class MolmoWebClient {
     return mapping[lower] || lower;
   }
 
-  private buildAction(actionType: MolmoActionType, raw: MolmoWebRawResponse): ActionSchema | null {
+  private buildAction(actionType: ArkActionType, raw: ArkRawResponse): ActionSchema | null {
     switch (actionType) {
       case 'click': {
         if (!raw.coordinate || raw.coordinate.length < 2) return null;
-        // MolmoWeb coordinates are normalized 0-1, convert to viewport pixels
+        // Ark coordinates are normalized 0-1, convert to viewport pixels
         const x = Math.round(raw.coordinate[0] * this.viewportWidth);
         const y = Math.round(raw.coordinate[1] * this.viewportHeight);
         return {
@@ -373,11 +373,11 @@ export class MolmoWebClient {
 }
 
 // Singleton
-let molmoInstance: MolmoWebClient | null = null;
+let arkInstance: ArkVisionClient | null = null;
 
-export function getMolmoClient(): MolmoWebClient {
-  if (!molmoInstance) {
-    molmoInstance = new MolmoWebClient();
+export function getArkClient(): ArkVisionClient {
+  if (!arkInstance) {
+    arkInstance = new ArkVisionClient();
   }
-  return molmoInstance;
+  return arkInstance;
 }

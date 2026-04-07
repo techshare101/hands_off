@@ -12,7 +12,7 @@ import { executionMemory } from './executionMemory';
 import { failureLearning } from './failureLearning';
 import { autoSkill, SkillStep } from './autoSkill';
 import { hybridBrain, ModeDecision } from './hybridBrain';
-import { MolmoWebClient, getMolmoClient } from './molmoClient';
+import { ArkVisionClient, getArkClient } from './arkClient';
 import { metaAgent } from './metaAgent';
 
 export interface AgentConfig {
@@ -60,13 +60,13 @@ export class AgentCore {
   private modeDecision: ModeDecision | null = null;
   private skillStepIndex = 0;
   private activeSkillSteps: SkillStep[] | null = null;
-  private molmo: MolmoWebClient;
-  private useMolmo = false;
+  private ark: ArkVisionClient;
+  private useArk = false;
 
   constructor(config: AgentConfig, gemini: GeminiClient) {
     this.config = config;
     this.gemini = gemini;
-    this.molmo = getMolmoClient();
+    this.ark = getArkClient();
     this.stateMachine = new AgentStateMachine();
     this.tools = createDefaultTools(config.tabId);
     this.autonomyLevel = config.autonomyLevel || 'autonomous';
@@ -123,15 +123,15 @@ export class AgentCore {
     await hybridBrain.init();
     await metaAgent.init();
 
-    // Check if MolmoWeb is enabled and server is reachable
-    this.useMolmo = await this.molmo.isEnabled();
-    if (this.useMolmo) {
-      const available = await this.molmo.isServerAvailable();
+    // Check if Ark Vision is enabled and server is reachable
+    this.useArk = await this.ark.isEnabled();
+    if (this.useArk) {
+      const available = await this.ark.isServerAvailable();
       if (available) {
-        this.emitStep('learning', `MolmoWeb vision engine connected`);
+        this.emitStep('learning', `Ark Vision engine connected`);
       } else {
-        console.log('[AgentCore] MolmoWeb enabled but server unreachable, using Gemini');
-        this.useMolmo = false;
+        console.log('[AgentCore] Ark Vision enabled but server unreachable, using LLM fallback');
+        this.useArk = false;
       }
     }
 
@@ -335,23 +335,23 @@ export class AgentCore {
         pageTitle,
       };
 
-      // Choose analyzer: MolmoWeb (vision) or Gemini (default)
-      // MolmoWeb is preferred in vision mode when available
+      // Choose analyzer: Ark Vision or Gemini (default)
+      // Ark is preferred in vision mode when available
       let analysis: AnalysisResult;
-      const molmoEnabled = this.useMolmo && (this.modeDecision?.mode === 'vision' || !this.modeDecision);
+      const arkEnabled = this.useArk && (this.modeDecision?.mode === 'vision' || !this.modeDecision);
 
-      if (molmoEnabled) {
-        this.emitStep('thinking', `MolmoWeb analyzing page... [vision mode]`, screenshot);
-        const molmoPromise = this.molmo.analyze(analysisRequest);
-        const molmoTimeout = new Promise<{ success: false; error: string }>((resolve) =>
-          setTimeout(() => resolve({ success: false, error: 'MolmoWeb timeout' }), 45000)
+      if (arkEnabled) {
+        this.emitStep('thinking', `Ark analyzing page... [vision mode]`, screenshot);
+        const arkPromise = this.ark.analyze(analysisRequest);
+        const arkTimeout = new Promise<{ success: false; error: string }>((resolve) =>
+          setTimeout(() => resolve({ success: false, error: 'Ark Vision timeout' }), 45000)
         );
-        analysis = await Promise.race([molmoPromise, molmoTimeout]) as AnalysisResult;
+        analysis = await Promise.race([arkPromise, arkTimeout]) as AnalysisResult;
 
-        // Fallback to Gemini if MolmoWeb fails
+        // Fallback to Gemini if Ark fails
         if (!analysis.success) {
-          console.log('[AgentCore] MolmoWeb failed, falling back to Gemini:', analysis.error);
-          this.emitStep('thinking', 'MolmoWeb unavailable, using Gemini...', screenshot);
+          console.log('[AgentCore] Ark Vision failed, falling back to Gemini:', analysis.error);
+          this.emitStep('thinking', 'Ark unavailable, using Gemini...', screenshot);
           const geminiPromise = this.gemini.analyze(analysisRequest);
           const geminiTimeout = new Promise<{ success: false; error: string }>((resolve) =>
             setTimeout(() => resolve({ success: false, error: 'Analysis timeout - Gemini took too long' }), 30000)

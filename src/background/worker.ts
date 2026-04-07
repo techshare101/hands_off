@@ -13,7 +13,7 @@ import { executionMemory } from '../agent/executionMemory';
 import { autoSkill } from '../agent/autoSkill';
 import { hybridBrain } from '../agent/hybridBrain';
 import { failureLearning } from '../agent/failureLearning';
-import { getMolmoClient } from '../agent/molmoClient';
+import { getArkClient } from '../agent/arkClient';
 import { metaAgent } from '../agent/metaAgent';
 
 // LLM Client interface (all clients implement this)
@@ -183,18 +183,18 @@ async function handleMessage(
       return { success: true };
     }
 
-    case 'MOLMO_HEALTH_CHECK': {
-      const molmo = getMolmoClient();
+    case 'ARK_HEALTH_CHECK': {
+      const ark = getArkClient();
       const ep = (message.payload as { endpoint?: string })?.endpoint;
-      if (ep) await molmo.setEndpoint(ep);
-      const available = await molmo.isServerAvailable();
+      if (ep) await ark.setEndpoint(ep);
+      const available = await ark.isServerAvailable();
       return { success: true, available };
     }
 
-    case 'MOLMO_GET_STATUS': {
-      const mc = getMolmoClient();
-      const stats = mc.getStats();
-      const enabled = await mc.isEnabled();
+    case 'ARK_GET_STATUS': {
+      const ac = getArkClient();
+      const stats = ac.getStats();
+      const enabled = await ac.isEnabled();
       return { success: true, ...stats, enabled };
     }
 

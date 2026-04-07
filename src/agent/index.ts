@@ -49,7 +49,7 @@ export type { Skill, SkillStep, SkillMatch, SkillMetadata, SkillExecutionResult 
 export { hybridBrain } from './hybridBrain';
 export type { ExecutionMode, ModeDecision, ExecutionContext } from './hybridBrain';
 
-export { MolmoWebClient, getMolmoClient } from './molmoClient';
+export { ArkVisionClient, getArkClient } from './arkClient';
 
 export { OpenAICompatClient, OpenAIClient, GroqClient, DeepSeekClient, QwenClient, MistralClient } from './openAICompatClient';
 export { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from './openAICompatClient';
