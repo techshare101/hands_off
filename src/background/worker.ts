@@ -14,6 +14,7 @@ import { autoSkill } from '../agent/autoSkill';
 import { hybridBrain } from '../agent/hybridBrain';
 import { failureLearning } from '../agent/failureLearning';
 import { getMolmoClient } from '../agent/molmoClient';
+import { metaAgent } from '../agent/metaAgent';
 
 // LLM Client interface (all clients implement this)
 interface LLMClient {
@@ -195,6 +196,60 @@ async function handleMessage(
       const stats = mc.getStats();
       const enabled = await mc.isEnabled();
       return { success: true, ...stats, enabled };
+    }
+
+    // ── Meta-Agent Handlers ──────────────────────────────────────
+
+    case 'META_RUN_OPTIMIZATION': {
+      await metaAgent.init();
+      const result = await metaAgent.runOptimizationCycle();
+      return { success: true, ...result };
+    }
+
+    case 'META_GET_STATS': {
+      const metaStats = await metaAgent.getStats();
+      return { success: true, ...metaStats };
+    }
+
+    case 'META_GET_SCORE': {
+      const score = await metaAgent.computeOverallScore();
+      return { success: true, score };
+    }
+
+    case 'META_GET_PATCHES': {
+      const patches = await metaAgent.getActivePatches();
+      return { success: true, patches };
+    }
+
+    case 'META_GET_SITE_STRATEGIES': {
+      const strategies = await metaAgent.getSiteStrategies();
+      return { success: true, strategies };
+    }
+
+    case 'META_GET_TEMPLATES': {
+      const templates = await metaAgent.getTemplates();
+      return { success: true, templates };
+    }
+
+    case 'META_CREATE_TEMPLATE': {
+      const tpl = message.payload as any;
+      const template = await metaAgent.createTemplate(tpl);
+      return { success: true, template };
+    }
+
+    case 'META_DELETE_TEMPLATE': {
+      await metaAgent.deleteTemplate((message.payload as { id: string }).id);
+      return { success: true };
+    }
+
+    case 'META_GET_SCORE_HISTORY': {
+      const history = await metaAgent.getScoreHistory();
+      return { success: true, history };
+    }
+
+    case 'META_CLEAR_ALL': {
+      await metaAgent.clearAll();
+      return { success: true };
     }
 
     default:

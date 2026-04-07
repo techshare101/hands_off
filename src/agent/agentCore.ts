@@ -13,6 +13,7 @@ import { failureLearning } from './failureLearning';
 import { autoSkill, SkillStep } from './autoSkill';
 import { hybridBrain, ModeDecision } from './hybridBrain';
 import { MolmoWebClient, getMolmoClient } from './molmoClient';
+import { metaAgent } from './metaAgent';
 
 export interface AgentConfig {
   tabId: number;
@@ -120,6 +121,7 @@ export class AgentCore {
     await executionMemory.init();
     await autoSkill.init();
     await hybridBrain.init();
+    await metaAgent.init();
 
     // Check if MolmoWeb is enabled and server is reachable
     this.useMolmo = await this.molmo.isEnabled();
@@ -301,6 +303,12 @@ export class AgentCore {
         }
       }
 
+      // Inject meta-agent prompt optimizations (auto-generated rules + site strategy)
+      const metaEnhancements = await metaAgent.getActivePromptEnhancements();
+      if (metaEnhancements) taskWithContext += metaEnhancements;
+      const siteAdditions = await metaAgent.getSitePromptAdditions(pageUrl);
+      if (siteAdditions) taskWithContext += siteAdditions;
+
       // Add detected salient elements as hints
       if (salientElements.length > 0) {
         const elementHints = salientElements.map(e => 
@@ -384,6 +392,11 @@ export class AgentCore {
         const newSkills = await autoSkill.detectNewSkills();
         if (newSkills.length > 0) {
           this.emitStep('learning', `Learned ${newSkills.length} new skill(s): ${newSkills.map(s => s.name).join(', ')}`);
+        }
+
+        // Evaluate meta-agent experiments with this trace
+        if (trace) {
+          await metaAgent.evaluateExperiments(trace);
         }
 
         // Record skill execution result if we were using a skill

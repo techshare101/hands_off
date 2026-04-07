@@ -54,3 +54,6 @@ export { MolmoWebClient, getMolmoClient } from './molmoClient';
 export { OpenAICompatClient, OpenAIClient, GroqClient, DeepSeekClient, QwenClient, MistralClient } from './openAICompatClient';
 export { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from './openAICompatClient';
 export { AnthropicClient, ANTHROPIC_MODELS } from './anthropicClient';
+
+export { metaAgent } from './metaAgent';
+export type { PromptPatch, OptimizationExperiment, SiteStrategy, MetaAgentStats, TaskTemplate, TaskScore, VerificationRule } from './metaAgent';

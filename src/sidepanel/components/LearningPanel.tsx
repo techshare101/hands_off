@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   Sparkles, Brain, Zap, Trash2, ChevronDown, ChevronUp, 
-  BarChart3, Shield, Globe, BookOpen, RefreshCw 
+  BarChart3, Shield, Globe, BookOpen, RefreshCw, FlaskConical, TrendingUp, Play
 } from 'lucide-react';
 
 interface LearningStats {
@@ -158,21 +158,64 @@ function SiteRow({ site }: { site: { site: string; actions: number; domR: number
   );
 }
 
+interface MetaStats {
+  totalExperiments: number;
+  activePatches: number;
+  provenPatches: number;
+  rejectedPatches: number;
+  siteStrategies: number;
+  overallScoreImprovement: number;
+  lastOptimizationRun: number;
+}
+
+interface PatchItem {
+  id: string;
+  content: string;
+  section?: string;
+  status: string;
+  score: number;
+  appliedCount: number;
+  successCount: number;
+  generatedFrom: string;
+}
+
+interface SiteStrategyItem {
+  sitePattern: string;
+  preferredMode: string;
+  customRules: string[];
+  avgSuccessRate: number;
+  totalRuns: number;
+}
+
 export default function LearningPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [stats, setStats] = useState<LearningStats | null>(null);
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'overview' | 'skills' | 'sites'>('overview');
+  const [tab, setTab] = useState<'overview' | 'skills' | 'sites' | 'meta'>('overview');
+  const [metaStats, setMetaStats] = useState<MetaStats | null>(null);
+  const [metaScore, setMetaScore] = useState<number | null>(null);
+  const [metaPatches, setMetaPatches] = useState<PatchItem[]>([]);
+  const [metaStrategies, setMetaStrategies] = useState<SiteStrategyItem[]>([]);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizationInsights, setOptimizationInsights] = useState<string[]>([]);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsRes, skillsRes] = await Promise.all([
+      const [statsRes, skillsRes, metaStatsRes, metaScoreRes, patchesRes, strategiesRes] = await Promise.all([
         chrome.runtime.sendMessage({ type: 'GET_LEARNING_STATS' }),
         chrome.runtime.sendMessage({ type: 'GET_SKILLS' }),
+        chrome.runtime.sendMessage({ type: 'META_GET_STATS' }),
+        chrome.runtime.sendMessage({ type: 'META_GET_SCORE' }),
+        chrome.runtime.sendMessage({ type: 'META_GET_PATCHES' }),
+        chrome.runtime.sendMessage({ type: 'META_GET_SITE_STRATEGIES' }),
       ]);
       if (statsRes?.success) setStats(statsRes.stats);
       if (skillsRes?.success) setSkills(skillsRes.skills || []);
+      if (metaStatsRes?.success) setMetaStats(metaStatsRes);
+      if (metaScoreRes?.success) setMetaScore(metaScoreRes.score);
+      if (patchesRes?.success) setMetaPatches(patchesRes.patches || []);
+      if (strategiesRes?.success) setMetaStrategies(strategiesRes.strategies || []);
     } catch (e) {
       console.error('[LearningPanel] Failed to fetch stats:', e);
     }
@@ -190,8 +233,26 @@ export default function LearningPanel({ isOpen, onClose }: { isOpen: boolean; on
 
   const handleClearAll = async () => {
     if (!confirm('Clear all learning data? Skills and memory will be reset.')) return;
-    await chrome.runtime.sendMessage({ type: 'CLEAR_LEARNING_DATA' });
+    await Promise.all([
+      chrome.runtime.sendMessage({ type: 'CLEAR_LEARNING_DATA' }),
+      chrome.runtime.sendMessage({ type: 'META_CLEAR_ALL' }),
+    ]);
     fetchStats();
+  };
+
+  const handleRunOptimization = async () => {
+    setOptimizing(true);
+    setOptimizationInsights([]);
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'META_RUN_OPTIMIZATION' });
+      if (res?.success) {
+        setOptimizationInsights(res.insights || []);
+        fetchStats();
+      }
+    } catch (e) {
+      console.error('[LearningPanel] Optimization failed:', e);
+    }
+    setOptimizing(false);
   };
 
   if (!isOpen) return null;
@@ -227,7 +288,7 @@ export default function LearningPanel({ isOpen, onClose }: { isOpen: boolean; on
 
       {/* Tabs */}
       <div className="flex border-b border-handoff-surface">
-        {(['overview', 'skills', 'sites'] as const).map((t) => (
+        {(['overview', 'skills', 'sites', 'meta'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -332,6 +393,135 @@ export default function LearningPanel({ isOpen, onClose }: { isOpen: boolean; on
                 <SkillCard key={skill.id} skill={skill} onDelete={handleDeleteSkill} />
               ))
             )}
+          </div>
+
+        ) : tab === 'meta' ? (
+          <div className="space-y-4">
+            {/* Agent Score */}
+            <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border border-purple-500/20 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <FlaskConical className="w-4 h-4 text-purple-400" />
+                  <span className="text-sm font-medium text-white">Agent Score</span>
+                </div>
+                <span className="text-2xl font-bold text-purple-400">
+                  {metaScore !== null ? `${(metaScore * 100).toFixed(1)}%` : '--'}
+                </span>
+              </div>
+              <p className="text-[10px] text-handoff-muted">Composite score from success rate, efficiency, and skill reliability</p>
+              {metaStats && metaStats.overallScoreImprovement !== 0 && (
+                <div className={`flex items-center gap-1 mt-2 text-xs ${
+                  metaStats.overallScoreImprovement > 0 ? 'text-emerald-400' : 'text-red-400'
+                }`}>
+                  <TrendingUp className="w-3 h-3" />
+                  {metaStats.overallScoreImprovement > 0 ? '+' : ''}
+                  {(metaStats.overallScoreImprovement * 100).toFixed(1)}% since optimization started
+                </div>
+              )}
+            </div>
+
+            {/* Optimization Button */}
+            <button
+              onClick={handleRunOptimization}
+              disabled={optimizing}
+              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-colors ${
+                optimizing
+                  ? 'bg-purple-500/20 text-purple-400 animate-pulse'
+                  : 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-400'
+              }`}
+            >
+              {optimizing ? (
+                <><RefreshCw className="w-4 h-4 animate-spin" /> Analyzing traces...</>
+              ) : (
+                <><Play className="w-4 h-4" /> Run Optimization Cycle</>
+              )}
+            </button>
+
+            {/* Optimization Insights */}
+            {optimizationInsights.length > 0 && (
+              <div className="bg-handoff-surface rounded-xl p-3">
+                <h4 className="text-xs font-medium text-purple-400 mb-2">Optimization Results</h4>
+                <div className="space-y-1">
+                  {optimizationInsights.map((insight, i) => (
+                    <div key={i} className="text-[11px] text-handoff-muted flex gap-2">
+                      <span className="text-purple-400">{'>'}</span>
+                      <span>{insight}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stats Grid */}
+            {metaStats && (
+              <div className="grid grid-cols-2 gap-2">
+                <StatCard icon={FlaskConical} label="Experiments" value={metaStats.totalExperiments} sub={`${metaStats.provenPatches} proven`} />
+                <StatCard icon={Zap} label="Active Patches" value={metaStats.activePatches} sub={`${metaStats.rejectedPatches} rejected`} />
+              </div>
+            )}
+
+            {/* Active Patches */}
+            {metaPatches.length > 0 && (
+              <div className="bg-handoff-surface rounded-xl p-3">
+                <h4 className="text-xs font-medium text-handoff-muted mb-2">Active Prompt Patches</h4>
+                <div className="space-y-2">
+                  {metaPatches.slice(0, 5).map((patch) => (
+                    <div key={patch.id} className="text-[11px] border-l-2 border-purple-500/40 pl-2">
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${
+                          patch.status === 'proven' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-purple-500/10 text-purple-400'
+                        }`}>
+                          {patch.status}
+                        </span>
+                        {patch.section && <span className="text-handoff-muted">{patch.section}</span>}
+                        <span className="text-handoff-muted ml-auto">{Math.round(patch.score * 100)}%</span>
+                      </div>
+                      <p className="text-handoff-muted line-clamp-2">{patch.content}</p>
+                      <p className="text-[9px] text-handoff-muted/50 mt-0.5">From: {patch.generatedFrom}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Site Strategies */}
+            {metaStrategies.length > 0 && (
+              <div className="bg-handoff-surface rounded-xl p-3">
+                <h4 className="text-xs font-medium text-handoff-muted mb-2">Optimized Site Strategies</h4>
+                <div className="space-y-1.5">
+                  {metaStrategies.map((s) => (
+                    <div key={s.sitePattern} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-3 h-3 text-handoff-muted" />
+                        <span className="text-white truncate max-w-[140px]">{s.sitePattern}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-purple-400 text-[10px]">{s.preferredMode}</span>
+                        <span className="text-handoff-muted text-[10px]">{Math.round(s.avgSuccessRate * 100)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-handoff-surface rounded-xl p-3">
+              <h4 className="text-xs font-medium text-handoff-muted mb-2">How Meta-Agent Works</h4>
+              <div className="space-y-2 text-[11px] text-handoff-muted">
+                <div className="flex gap-2">
+                  <FlaskConical className="w-3.5 h-3.5 text-purple-400 flex-shrink-0 mt-0.5" />
+                  <span><strong className="text-purple-400">Analyze</strong> — Reads execution traces to find failure patterns and inefficiencies</span>
+                </div>
+                <div className="flex gap-2">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <span><strong className="text-amber-400">Generate</strong> — Creates prompt patches that address identified weaknesses</span>
+                </div>
+                <div className="flex gap-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <span><strong className="text-emerald-400">Evaluate</strong> — Measures patch impact over 5+ tasks. Keep if better, discard if worse.</span>
+                </div>
+              </div>
+            </div>
           </div>
 
         ) : tab === 'sites' ? (
