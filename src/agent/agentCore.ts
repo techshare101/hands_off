@@ -543,10 +543,13 @@ export class AgentCore {
       this.retryCount = 0;
       this.lastError = null;
       
-      // Hint to press Enter after typing in search boxes
+      // FORCE press Enter after typing — this is the #1 cause of getting stuck
       if (response.action.type === 'type') {
-        this.correctionContext = 'You just typed text. If this was in a search box, press Enter to submit the search. Do not wait - take action immediately.';
-      } else {
+        this.correctionContext = 'MANDATORY: You just typed text. Your VERY NEXT action MUST be {"type": "press", "key": "Enter"} to submit. Do NOT look for a button. Do NOT click anything. Just press Enter NOW.';
+      } else if (response.action.type === 'press' && this.correctionContext?.includes('MANDATORY')) {
+        // Clear the hint after Enter was pressed
+        this.correctionContext = null;
+      } else if (response.action.type !== 'press') {
         this.correctionContext = null;
       }
 
@@ -568,11 +571,31 @@ export class AgentCore {
         this.recentActionSignatures.shift();
       }
       
-      // Check if same action repeated too many times
+      // Check if same action repeated too many times — with smarter recovery hints
       const signatureCount = this.recentActionSignatures.filter(s => s === actionSignature).length;
       if (signatureCount >= this.maxRepeatedActions) {
-        this.correctionContext = `STOP: You are repeating the same action "${response.action.type}" on "${response.action.target}" multiple times without success. The element may not be where you think it is. Try clicking at DIFFERENT coordinates, or look for the element in a different location. On LinkedIn, the search bar is in the TOP LEFT corner around x:180, y:45.`;
+        const actionType = response.action.type;
+        let recovery = '';
+        if (actionType === 'click') {
+          recovery = 'Your clicks are not working. Try: 1) Press Enter instead of clicking. 2) Use Tab to focus the element then Enter. 3) Try completely different coordinates. 4) The element might be off-screen — scroll first.';
+        } else if (actionType === 'type') {
+          recovery = 'You are typing repeatedly. After typing, you MUST press Enter to submit. Use {"type": "press", "key": "Enter"} as your next action.';
+        } else if (actionType === 'scroll') {
+          recovery = 'You are scrolling in circles. Stop scrolling and work with what is visible NOW. If you cannot find the target, try navigating directly to the URL.';
+        } else {
+          recovery = 'You are stuck repeating the same action. Try a completely different approach to accomplish the task.';
+        }
+        this.correctionContext = `STUCK DETECTED: You repeated "${actionType}" on "${response.action.target || 'same element'}" ${signatureCount} times. ${recovery}`;
         this.recentActionSignatures = []; // Reset to give fresh start
+      }
+
+      // Detect type→click loop (agent types then clicks instead of pressing Enter)
+      if (this.actionHistory.length >= 2) {
+        const prev = this.actionHistory[this.actionHistory.length - 1];
+        const prevPrev = this.actionHistory.length >= 3 ? this.actionHistory[this.actionHistory.length - 2] : null;
+        if (prev?.type === 'type' && response.action.type === 'click' && prevPrev?.type === 'type') {
+          this.correctionContext = 'PATTERN DETECTED: You keep typing then clicking instead of submitting. After typing in a search box, you MUST press Enter. Use {"type": "press", "key": "Enter"} NOW.';
+        }
       }
 
       this.actionHistory.push(response.action);
