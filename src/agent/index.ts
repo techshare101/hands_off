@@ -51,6 +51,15 @@ export type { ExecutionMode, ModeDecision, ExecutionContext } from './hybridBrai
 
 export { ArkVisionClient, getArkClient } from './arkClient';
 
+export { HFInferenceClient, getHFClient, HF_MODELS } from './hfClient';
+export type { HFConfig, DetectedObject, BoundingBox, OCRWord, EmbeddingResult, ClassificationResult } from './hfClient';
+
+export { hfVision } from './hfVision';
+export type { UIElement, PageAnalysis } from './hfVision';
+
+export { hfEmbeddings } from './hfEmbeddings';
+export type { SemanticMatch } from './hfEmbeddings';
+
 export { OpenAICompatClient, OpenAIClient, GroqClient, DeepSeekClient, QwenClient, MistralClient } from './openAICompatClient';
 export { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from './openAICompatClient';
 export { AnthropicClient, ANTHROPIC_MODELS } from './anthropicClient';

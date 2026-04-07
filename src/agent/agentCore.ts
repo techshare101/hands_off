@@ -14,6 +14,8 @@ import { autoSkill, SkillStep } from './autoSkill';
 import { hybridBrain, ModeDecision } from './hybridBrain';
 import { ArkVisionClient, getArkClient } from './arkClient';
 import { metaAgent } from './metaAgent';
+import { hfVision } from './hfVision';
+import { getHFClient } from './hfClient';
 
 export interface AgentConfig {
   tabId: number;
@@ -62,6 +64,7 @@ export class AgentCore {
   private activeSkillSteps: SkillStep[] | null = null;
   private ark: ArkVisionClient;
   private useArk = false;
+  private useHF = false;
 
   constructor(config: AgentConfig, gemini: GeminiClient) {
     this.config = config;
@@ -122,6 +125,14 @@ export class AgentCore {
     await autoSkill.init();
     await hybridBrain.init();
     await metaAgent.init();
+
+    // Check if Hugging Face Vision is enabled
+    const hfClient = getHFClient();
+    await hfClient.init();
+    this.useHF = await hfClient.isEnabled();
+    if (this.useHF) {
+      this.emitStep('learning', `HuggingFace vision pipeline active`);
+    }
 
     // Check if Ark Vision is enabled and server is reachable
     this.useArk = await this.ark.isEnabled();
@@ -315,6 +326,24 @@ export class AgentCore {
           `- ${e.type.toUpperCase()}: "${e.label}" at coordinates (${e.x}, ${e.y})`
         ).join('\n');
         taskWithContext += `\n\n[DETECTED ELEMENTS - USE THESE COORDINATES]:\n${elementHints}`;
+      }
+
+      // HuggingFace Vision: detect UI elements with ML models
+      if (this.useHF) {
+        try {
+          const hfAnalysis = await hfVision.analyzePage(screenshot, {
+            detectObjects: true,
+            zeroShotDetect: true,
+            caption: iteration === 0, // caption only on first iteration
+          });
+          if (hfAnalysis.elements.length > 0) {
+            const hfHints = hfVision.formatAsPromptHints(hfAnalysis);
+            taskWithContext += hfHints;
+            console.log(`[AgentCore] HF Vision found ${hfAnalysis.elements.length} elements in ${hfAnalysis.latencyMs}ms`);
+          }
+        } catch (e) {
+          console.warn('[AgentCore] HF Vision analysis failed, continuing without:', e);
+        }
       }
       
       // Add cursor position

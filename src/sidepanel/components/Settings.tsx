@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Key, Save, Check, Eye } from 'lucide-react';
+import { X, Key, Save, Check, Eye, Brain } from 'lucide-react';
 import { OPENROUTER_VISION_MODELS } from '../../agent/openRouterClient';
 import { ROUTELLM_MODELS } from '../../agent/routeLLMClient';
 import { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from '../../agent/openAICompatClient';
@@ -53,9 +53,12 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [arkEnabled, setArkEnabled] = useState(false);
   const [arkEndpoint, setArkEndpoint] = useState('http://127.0.0.1:8001');
   const [arkStatus, setArkStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
+  const [hfToken, setHfToken] = useState('');
+  const [hfEnabled, setHfEnabled] = useState(false);
+  const [hfStatus, setHfStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
 
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
@@ -64,6 +67,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       if (result.llmProvider) setProvider(result.llmProvider);
       if (result.ark_enabled) setArkEnabled(result.ark_enabled);
       if (result.ark_endpoint) setArkEndpoint(result.ark_endpoint);
+      if (result.hf_api_token) setHfToken(result.hf_api_token);
+      if (result.hf_enabled) setHfEnabled(result.hf_enabled);
       const loadedKeys: Record<string, string> = {};
       const loadedModels: Record<string, string> = {};
       Object.entries(PROVIDER_META).forEach(([, meta]) => {
@@ -80,6 +85,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       llmProvider: provider,
       ark_enabled: arkEnabled,
       ark_endpoint: arkEndpoint,
+      hf_api_token: hfToken,
+      hf_enabled: hfEnabled,
       ...keys,
       ...models,
     };
@@ -97,6 +104,17 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       setArkStatus('offline');
     }
     setTimeout(() => setArkStatus('unknown'), 5000);
+  };
+
+  const checkHFConnection = async () => {
+    setHfStatus('checking');
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'HF_TEST_CONNECTION', payload: { token: hfToken } });
+      setHfStatus(res?.available ? 'online' : 'offline');
+    } catch {
+      setHfStatus('offline');
+    }
+    setTimeout(() => setHfStatus('unknown'), 5000);
   };
 
   const meta = PROVIDER_META[provider];
@@ -218,6 +236,55 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                      arkStatus === 'offline' ? 'Offline' : 'Test'}
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* HuggingFace Vision */}
+          <div className="border-t border-handoff-dark pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-white flex items-center gap-2">
+                <Brain className="w-4 h-4 text-amber-400" />
+                HuggingFace Vision
+              </label>
+              <button
+                onClick={() => setHfEnabled(!hfEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${hfEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${hfEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <p className="text-xs text-handoff-muted mb-3">
+              ML-powered element detection, OCR, and semantic skill matching via HuggingFace Inference API.
+            </p>
+            {hfEnabled && (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={hfToken}
+                    onChange={(e) => setHfToken(e.target.value)}
+                    placeholder="hf_..."
+                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                  />
+                  <button
+                    onClick={checkHFConnection}
+                    disabled={hfStatus === 'checking' || !hfToken.trim()}
+                    className={`px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
+                      hfStatus === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
+                      hfStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
+                      hfStatus === 'checking' ? 'bg-amber-500/20 text-amber-400 animate-pulse' :
+                      'bg-handoff-dark text-handoff-muted hover:text-white'
+                    }`}
+                  >
+                    {hfStatus === 'checking' ? 'Testing...' :
+                     hfStatus === 'online' ? 'Connected' :
+                     hfStatus === 'offline' ? 'Failed' : 'Test'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-handoff-muted">
+                  Get your free token from <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">huggingface.co/settings/tokens</a>
+                </p>
               </div>
             )}
           </div>

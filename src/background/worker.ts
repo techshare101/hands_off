@@ -14,6 +14,8 @@ import { autoSkill } from '../agent/autoSkill';
 import { hybridBrain } from '../agent/hybridBrain';
 import { failureLearning } from '../agent/failureLearning';
 import { getArkClient } from '../agent/arkClient';
+import { getHFClient } from '../agent/hfClient';
+import { hfEmbeddings } from '../agent/hfEmbeddings';
 import { metaAgent } from '../agent/metaAgent';
 
 // LLM Client interface (all clients implement this)
@@ -196,6 +198,41 @@ async function handleMessage(
       const stats = ac.getStats();
       const enabled = await ac.isEnabled();
       return { success: true, ...stats, enabled };
+    }
+
+    // ── HuggingFace Handlers ────────────────────────────────────
+
+    case 'HF_GET_CONFIG': {
+      const hf = getHFClient();
+      const config = await hf.getConfig();
+      return { success: true, ...config };
+    }
+
+    case 'HF_SET_CONFIG': {
+      const hf = getHFClient();
+      await hf.setConfig(message.payload as any);
+      return { success: true };
+    }
+
+    case 'HF_GET_STATS': {
+      const hf = getHFClient();
+      const hfStats = hf.getStats();
+      const embedCacheSize = hfEmbeddings.getCacheSize();
+      return { success: true, ...hfStats, embedCacheSize };
+    }
+
+    case 'HF_TEST_CONNECTION': {
+      const hf = getHFClient();
+      const p = message.payload as { token?: string };
+      if (p?.token) await hf.setConfig({ token: p.token, enabled: true });
+      const testResult = await hf.getEmbedding('test connection');
+      return { success: true, available: !!testResult.embedding };
+    }
+
+    case 'HF_CLASSIFY_TASK': {
+      const taskText = (message.payload as { task: string }).task;
+      const classification = await hfEmbeddings.classifyTask(taskText);
+      return { success: true, ...classification };
     }
 
     // ── Meta-Agent Handlers ──────────────────────────────────────
