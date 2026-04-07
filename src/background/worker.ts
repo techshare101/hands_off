@@ -225,26 +225,22 @@ async function handleMessage(
       const hf = getHFClient();
       const p = message.payload as { token?: string };
       if (p?.token) await hf.setConfig({ token: p.token, enabled: true });
-      // Try up to 3 times — HF models return 503 while cold-loading
-      let testAvailable = false;
-      let testError = '';
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const testResult = await hf.getEmbedding('test connection');
-        if (testResult.success && testResult.embedding) {
-          testAvailable = true;
-          break;
+      // Just validate the token against HF's whoami endpoint — fast + reliable
+      try {
+        const token = p?.token || (await hf.getConfig()).token;
+        const resp = await fetch('https://huggingface.co/api/whoami-v2', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (resp.ok) {
+          const user = await resp.json();
+          console.log('[HF] Token valid, user:', user?.name || user?.fullname);
+          return { success: true, available: true, user: user?.name || user?.fullname };
         }
-        testError = testResult.error || 'Unknown error';
-        // If model is loading (503), wait and retry
-        if (testError.includes('Model loading') || testError.includes('503')) {
-          console.log(`[HF] Model loading, retry ${attempt + 1}/3...`);
-          await new Promise(r => setTimeout(r, 5000)); // wait 5s between retries
-          continue;
-        }
-        // For other errors (bad token, etc), don't retry
-        break;
+        const errText = await resp.text();
+        return { success: true, available: false, error: `Token invalid (${resp.status}): ${errText.slice(0, 100)}` };
+      } catch (e) {
+        return { success: true, available: false, error: e instanceof Error ? e.message : 'Connection failed' };
       }
-      return { success: true, available: testAvailable, error: testAvailable ? undefined : testError };
     }
 
     case 'HF_CLASSIFY_TASK': {
