@@ -110,11 +110,17 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
     setHfStatus('checking');
     try {
       const res = await chrome.runtime.sendMessage({ type: 'HF_TEST_CONNECTION', payload: { token: hfToken } });
-      setHfStatus(res?.available ? 'online' : 'offline');
-    } catch {
+      if (res?.available) {
+        setHfStatus('online');
+      } else {
+        console.warn('[HF Test] Failed:', res?.error);
+        setHfStatus('offline');
+      }
+    } catch (e) {
+      console.warn('[HF Test] Error:', e);
       setHfStatus('offline');
     }
-    setTimeout(() => setHfStatus('unknown'), 5000);
+    setTimeout(() => setHfStatus('unknown'), 8000);
   };
 
   const meta = PROVIDER_META[provider];
@@ -277,7 +283,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                       'bg-handoff-dark text-handoff-muted hover:text-white'
                     }`}
                   >
-                    {hfStatus === 'checking' ? 'Testing...' :
+                    {hfStatus === 'checking' ? 'Testing (may take ~15s)...' :
                      hfStatus === 'online' ? 'Connected' :
                      hfStatus === 'offline' ? 'Failed' : 'Test'}
                   </button>
