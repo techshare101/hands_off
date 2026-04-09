@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { useAgentStore } from '../../store/agentStore';
+import type { A2UIWidgetPayload } from '../../agent/a2ui';
 
 export function useAgentMessages() {
-  const { addStep, setStatus, setError } = useAgentStore();
+  const { addStep, setStatus, setError, addWidget, dismissWidget, updateWidget } = useAgentStore();
 
   useEffect(() => {
     const handleMessage = (message: { type: string; payload?: unknown }) => {
@@ -19,10 +20,23 @@ export function useAgentMessages() {
         case 'AGENT_ERROR':
           setError((message.payload as { error: string }).error);
           break;
+        // A2UI Widget Events
+        case 'A2UI_RENDER_WIDGET':
+          addWidget(message.payload as A2UIWidgetPayload);
+          break;
+        case 'A2UI_DISMISS_WIDGET':
+          dismissWidget((message.payload as { widgetId: string }).widgetId);
+          break;
+        case 'A2UI_UPDATE_WIDGET':
+          updateWidget(
+            (message.payload as { widgetId: string }).widgetId,
+            message.payload as Partial<A2UIWidgetPayload>
+          );
+          break;
       }
     };
 
     chrome.runtime.onMessage.addListener(handleMessage);
     return () => chrome.runtime.onMessage.removeListener(handleMessage);
-  }, [addStep, setStatus, setError]);
+  }, [addStep, setStatus, setError, addWidget, dismissWidget, updateWidget]);
 }

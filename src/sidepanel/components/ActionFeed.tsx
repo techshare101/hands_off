@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { Eye, MousePointer, Type, CheckCircle, AlertCircle, Pause, Brain, Sparkles } from 'lucide-react';
+import { Eye, MousePointer, Type, CheckCircle, AlertCircle, Pause, Brain, Sparkles, LayoutGrid } from 'lucide-react';
 import { useAgentStore, AgentStep } from '../../store/agentStore';
+import WidgetRenderer from './WidgetRenderer';
+import type { A2UIUserAction } from '../../agent/a2ui';
 
-const stepIcons = {
+const stepIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   seeing: Eye,
   thinking: Brain,
   clicking: MousePointer,
@@ -11,9 +13,10 @@ const stepIcons = {
   error: AlertCircle,
   paused: Pause,
   learning: Sparkles,
+  widget: LayoutGrid,
 };
 
-const stepColors = {
+const stepColors: Record<string, string> = {
   seeing: 'text-blue-400 bg-blue-500/10',
   thinking: 'text-purple-400 bg-purple-500/10',
   clicking: 'text-yellow-400 bg-yellow-500/10',
@@ -22,6 +25,7 @@ const stepColors = {
   error: 'text-red-400 bg-red-500/10',
   paused: 'text-orange-400 bg-orange-500/10',
   learning: 'text-emerald-400 bg-emerald-500/10',
+  widget: 'text-indigo-400 bg-indigo-500/10',
 };
 
 function StepItem({ step }: { step: AgentStep }) {
@@ -54,7 +58,7 @@ function StepItem({ step }: { step: AgentStep }) {
 }
 
 export default function ActionFeed() {
-  const { steps, currentTask } = useAgentStore();
+  const { steps, currentTask, activeWidgets, dismissWidget, handleWidgetAction } = useAgentStore();
   const feedRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,7 +84,25 @@ export default function ActionFeed() {
             Agent actions will appear here...
           </div>
         ) : (
-          steps.map((step) => <StepItem key={step.id} step={step} />)
+          steps.map((step) => {
+            // If this step is a widget, render the widget inline
+            if (step.type === 'widget' && step.metadata?.widgetId) {
+              const widget = activeWidgets.find(w => w.widgetId === step.metadata?.widgetId);
+              if (widget) {
+                return (
+                  <div key={step.id}>
+                    <StepItem step={step} />
+                    <WidgetRenderer
+                      payload={widget}
+                      onAction={(action: A2UIUserAction) => handleWidgetAction(action)}
+                      onDismiss={() => dismissWidget(widget.widgetId)}
+                    />
+                  </div>
+                );
+              }
+            }
+            return <StepItem key={step.id} step={step} />;
+          })
         )}
       </div>
     </div>

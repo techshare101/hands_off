@@ -21,6 +21,10 @@ import { apiTool } from '../agent/apiTool';
 import { skillRecorder, BUILT_IN_TEMPLATES } from '../agent/skillRecorder';
 import { fileTool } from '../agent/fileTool';
 import { mcpServer } from '../agent/mcpServer';
+import { a2ui, A2UI_TEMPLATES, validateWidgetPayload } from '../agent/a2ui';
+import type { A2UIWidgetPayload, A2UIUserAction } from '../agent/a2ui';
+import { mcpClient } from '../agent/mcpClient';
+import { a2aProtocol } from '../agent/a2aProtocol';
 
 // LLM Client interface (all clients implement this)
 interface LLMClient {
@@ -515,6 +519,143 @@ async function handleMessage(
       const mcpReq = message.payload as any;
       const mcpResp = await mcpServer.handleExternalMessage(mcpReq);
       return { success: true, response: mcpResp };
+    }
+
+    // ── A2UI Widget Handlers ──────────────────────────────────────
+
+    case 'A2UI_RENDER_WIDGET': {
+      const widgetPayload = message.payload as A2UIWidgetPayload;
+      const validation = a2ui.renderWidget(widgetPayload);
+      if (!validation.valid) {
+        return { success: false, error: `Invalid widget: ${validation.errors.join(', ')}` };
+      }
+      // Broadcast to sidepanel
+      chrome.runtime.sendMessage({ type: 'A2UI_RENDER_WIDGET', payload: widgetPayload }).catch(() => {});
+      return { success: true };
+    }
+
+    case 'A2UI_DISMISS_WIDGET': {
+      const wid = (message.payload as { widgetId: string }).widgetId;
+      a2ui.dismissWidget(wid);
+      chrome.runtime.sendMessage({ type: 'A2UI_DISMISS_WIDGET', payload: { widgetId: wid } }).catch(() => {});
+      return { success: true };
+    }
+
+    case 'A2UI_UPDATE_WIDGET': {
+      const up = message.payload as { widgetId: string } & Partial<A2UIWidgetPayload>;
+      a2ui.updateWidget(up.widgetId, up);
+      chrome.runtime.sendMessage({ type: 'A2UI_UPDATE_WIDGET', payload: up }).catch(() => {});
+      return { success: true };
+    }
+
+    case 'A2UI_USER_ACTION': {
+      const action = message.payload as A2UIUserAction;
+      a2ui.handleUserAction(action);
+      console.log('[Worker] A2UI user action:', action.actionId, 'values:', action.values);
+      return { success: true };
+    }
+
+    case 'A2UI_GET_TEMPLATES': {
+      return { success: true, templates: Object.keys(A2UI_TEMPLATES) };
+    }
+
+    case 'A2UI_RENDER_TEMPLATE': {
+      const tp = message.payload as { template: string; args: unknown[] };
+      const templateFn = (A2UI_TEMPLATES as Record<string, (...args: any[]) => A2UIWidgetPayload>)[tp.template];
+      if (!templateFn) return { success: false, error: `Unknown template: ${tp.template}` };
+      const tplPayload = templateFn(...(tp.args || []));
+      const tplValidation = a2ui.renderWidget(tplPayload);
+      if (!tplValidation.valid) return { success: false, error: tplValidation.errors.join(', ') };
+      chrome.runtime.sendMessage({ type: 'A2UI_RENDER_WIDGET', payload: tplPayload }).catch(() => {});
+      return { success: true, widgetId: tplPayload.widgetId };
+    }
+
+    case 'A2UI_VALIDATE': {
+      const vResult = validateWidgetPayload(message.payload);
+      return { success: vResult.valid, errors: vResult.errors };
+    }
+
+    case 'A2UI_GET_ACTIVE': {
+      return { success: true, widgets: a2ui.getActiveWidgets() };
+    }
+
+    case 'A2UI_CLEAR_ALL': {
+      a2ui.clearAll();
+      chrome.runtime.sendMessage({ type: 'A2UI_CLEAR_ALL' }).catch(() => {});
+      return { success: true };
+    }
+
+    // ── MCP Client Handlers ──────────────────────────────────────
+
+    case 'MCP_CLIENT_ADD_SERVER': {
+      const server = await mcpClient.addServer(message.payload as any);
+      return { success: true, result: server };
+    }
+
+    case 'MCP_CLIENT_REMOVE_SERVER': {
+      await mcpClient.removeServer((message.payload as { serverId: string }).serverId);
+      return { success: true };
+    }
+
+    case 'MCP_CLIENT_LIST_SERVERS': {
+      return { success: true, result: mcpClient.getServers() };
+    }
+
+    case 'MCP_CLIENT_DISCOVER_TOOLS': {
+      const tools = await mcpClient.discoverTools((message.payload as { serverId?: string })?.serverId);
+      return { success: true, result: tools };
+    }
+
+    case 'MCP_CLIENT_CALL_TOOL': {
+      const { serverId, toolName, args } = message.payload as { serverId: string; toolName: string; args: Record<string, unknown> };
+      const toolResult = await mcpClient.callTool(serverId, toolName, args);
+      return { success: true, result: toolResult };
+    }
+
+    case 'MCP_CLIENT_PING': {
+      const pingResult = await mcpClient.pingServer((message.payload as { serverId: string }).serverId);
+      return { success: true, result: pingResult };
+    }
+
+    // ── A2A Protocol Handlers ────────────────────────────────────
+
+    case 'A2A_REGISTER_AGENT': {
+      const agent = await a2aProtocol.registerAgent(message.payload as any);
+      return { success: true, result: agent };
+    }
+
+    case 'A2A_REMOVE_AGENT': {
+      await a2aProtocol.removeAgent((message.payload as { agentId: string }).agentId);
+      return { success: true };
+    }
+
+    case 'A2A_LIST_AGENTS': {
+      return { success: true, result: a2aProtocol.getRemoteAgents() };
+    }
+
+    case 'A2A_DISCOVER_AGENT': {
+      const { endpoint, apiKey: dApiKey } = message.payload as { endpoint: string; apiKey?: string };
+      const card = await a2aProtocol.discoverAgent(endpoint, dApiKey);
+      return { success: true, result: card };
+    }
+
+    case 'A2A_SEND_TASK': {
+      const { agentId, intent, description, input } = message.payload as { agentId: string; intent: string; description: string; input: Record<string, unknown> };
+      const task = await a2aProtocol.sendTask(agentId, intent, description, input);
+      return { success: true, result: task };
+    }
+
+    case 'A2A_GET_ACTIVE_TASKS': {
+      return { success: true, result: a2aProtocol.getActiveTasks() };
+    }
+
+    case 'A2A_GET_CARD': {
+      return { success: true, result: a2aProtocol.agentCard };
+    }
+
+    case 'A2A_HANDLE_INCOMING': {
+      const inResult = await a2aProtocol.handleIncomingTask(message.payload as any);
+      return { success: true, result: inResult };
     }
 
     default:

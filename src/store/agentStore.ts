@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { A2UIWidgetPayload, A2UIUserAction } from '../agent/a2ui';
 
 export type AgentStatus = 
   | 'idle' 
@@ -18,7 +19,8 @@ export type StepType =
   | 'verifying' 
   | 'error' 
   | 'paused'
-  | 'learning';
+  | 'learning'
+  | 'widget';
 
 export interface AgentStep {
   id: string;
@@ -50,6 +52,7 @@ interface AgentState {
   steps: AgentStep[];
   tasksRemaining: number;
   error: string | null;
+  activeWidgets: A2UIWidgetPayload[];
   
   // Actions
   startTask: (task: string) => void;
@@ -60,6 +63,10 @@ interface AgentState {
   addStep: (step: Omit<AgentStep, 'id' | 'timestamp'>) => void;
   setStatus: (status: AgentStatus) => void;
   setError: (error: string | null) => void;
+  addWidget: (payload: A2UIWidgetPayload) => void;
+  dismissWidget: (widgetId: string) => void;
+  updateWidget: (widgetId: string, updates: Partial<A2UIWidgetPayload>) => void;
+  handleWidgetAction: (action: A2UIUserAction) => void;
   reset: () => void;
 }
 
@@ -71,6 +78,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   steps: [],
   tasksRemaining: 10,
   error: null,
+  activeWidgets: [],
 
   startTask: (task: string) => {
     set({
@@ -133,10 +141,41 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   setError: (error: string | null) => set({ error, status: error ? 'error' : 'idle' }),
 
+  addWidget: (payload: A2UIWidgetPayload) => {
+    set((state) => ({
+      activeWidgets: [...state.activeWidgets.filter(w => w.widgetId !== payload.widgetId), payload],
+    }));
+    // Also add a step so the widget appears in the feed
+    get().addStep({ type: 'widget', description: payload.title || 'Interactive widget', metadata: { widgetId: payload.widgetId } });
+  },
+
+  dismissWidget: (widgetId: string) => {
+    set((state) => ({
+      activeWidgets: state.activeWidgets.filter(w => w.widgetId !== widgetId),
+    }));
+  },
+
+  updateWidget: (widgetId: string, updates: Partial<A2UIWidgetPayload>) => {
+    set((state) => ({
+      activeWidgets: state.activeWidgets.map(w =>
+        w.widgetId === widgetId ? { ...w, ...updates, widgetId } : w
+      ),
+    }));
+  },
+
+  handleWidgetAction: (action: A2UIUserAction) => {
+    // Send to background worker for the agent to process
+    chrome.runtime.sendMessage({
+      type: 'A2UI_USER_ACTION',
+      payload: action,
+    });
+  },
+
   reset: () => set({
     status: 'idle',
     currentTask: null,
     steps: [],
     error: null,
+    activeWidgets: [],
   }),
 }));
