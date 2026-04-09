@@ -17,6 +17,10 @@ import { getArkClient } from '../agent/arkClient';
 import { getHFClient } from '../agent/hfClient';
 import { hfEmbeddings } from '../agent/hfEmbeddings';
 import { metaAgent } from '../agent/metaAgent';
+import { apiTool } from '../agent/apiTool';
+import { skillRecorder, BUILT_IN_TEMPLATES } from '../agent/skillRecorder';
+import { fileTool } from '../agent/fileTool';
+import { mcpServer } from '../agent/mcpServer';
 
 // LLM Client interface (all clients implement this)
 interface LLMClient {
@@ -303,10 +307,229 @@ async function handleMessage(
       return { success: true };
     }
 
+    // ── API Tool Handlers ─────────────────────────────────────────
+
+    case 'API_EXECUTE': {
+      const req = message.payload as { method: string; url: string; headers?: Record<string,string>; body?: unknown; timeout?: number };
+      const apiResult = await apiTool.execute({
+        method: req.method as any,
+        url: req.url,
+        headers: req.headers,
+        body: req.body,
+        timeout: req.timeout,
+      });
+      return { success: true, result: apiResult };
+    }
+
+    case 'API_EXECUTE_ENDPOINT': {
+      const ep = message.payload as { endpointId: string; variables?: Record<string,string> };
+      const epResult = await apiTool.executeEndpoint(ep.endpointId, ep.variables);
+      return { success: true, result: epResult };
+    }
+
+    case 'API_GET_CONFIG': {
+      const apiConfig = await apiTool.getConfig();
+      return { success: true, config: apiConfig };
+    }
+
+    case 'API_SET_CONFIG': {
+      await apiTool.setConfig(message.payload as any);
+      return { success: true };
+    }
+
+    case 'API_ADD_DOMAIN': {
+      await apiTool.addDomain((message.payload as { domain: string }).domain);
+      return { success: true };
+    }
+
+    case 'API_REMOVE_DOMAIN': {
+      await apiTool.removeDomain((message.payload as { domain: string }).domain);
+      return { success: true };
+    }
+
+    case 'API_ADD_ENDPOINT': {
+      const saved = await apiTool.addEndpoint(message.payload as any);
+      return { success: true, endpoint: saved };
+    }
+
+    case 'API_REMOVE_ENDPOINT': {
+      await apiTool.removeEndpoint((message.payload as { id: string }).id);
+      return { success: true };
+    }
+
+    case 'API_GET_LOG': {
+      const apiLog = await apiTool.getLog((message.payload as { limit?: number })?.limit);
+      return { success: true, log: apiLog };
+    }
+
+    case 'API_GET_STATS': {
+      const apiStats = apiTool.getStats();
+      return { success: true, ...apiStats };
+    }
+
+    // ── Skill Recorder Handlers ───────────────────────────────────
+
+    case 'RECORDER_START': {
+      const rp = message.payload as { name: string; description: string; startUrl: string };
+      const session = await skillRecorder.startRecording(rp.name, rp.description, rp.startUrl);
+      return { success: true, session };
+    }
+
+    case 'RECORDER_RECORD_STEP': {
+      const sp = message.payload as { action: any; pageUrl: string; pageTitle: string; selector?: string };
+      await skillRecorder.recordStep(sp.action, sp.pageUrl, sp.pageTitle, sp.selector);
+      return { success: true };
+    }
+
+    case 'RECORDER_STOP': {
+      const completed = await skillRecorder.stopRecording();
+      return { success: true, session: completed };
+    }
+
+    case 'RECORDER_PAUSE': {
+      await skillRecorder.pauseRecording();
+      return { success: true };
+    }
+
+    case 'RECORDER_RESUME': {
+      await skillRecorder.resumeRecording();
+      return { success: true };
+    }
+
+    case 'RECORDER_CANCEL': {
+      await skillRecorder.cancelRecording();
+      return { success: true };
+    }
+
+    case 'RECORDER_GET_STATUS': {
+      const isRec = skillRecorder.isRecording();
+      const active = skillRecorder.getActiveRecording();
+      return { success: true, isRecording: isRec, session: active };
+    }
+
+    case 'RECORDER_CONVERT_TO_SKILL': {
+      const cp = message.payload as { recordingId: string; variables?: any[] };
+      const skill = await skillRecorder.convertToSkill(cp.recordingId, cp.variables);
+      return { success: true, skill };
+    }
+
+    case 'RECORDER_GET_RECORDINGS': {
+      const recordings = await skillRecorder.getRecordings();
+      return { success: true, recordings };
+    }
+
+    case 'RECORDER_DELETE': {
+      await skillRecorder.deleteRecording((message.payload as { id: string }).id);
+      return { success: true };
+    }
+
+    case 'RECORDER_GET_TEMPLATES': {
+      return { success: true, templates: BUILT_IN_TEMPLATES };
+    }
+
+    case 'RECORDER_INSTALL_TEMPLATE': {
+      const tplId = (message.payload as { templateId: string }).templateId;
+      const tpl = BUILT_IN_TEMPLATES.find(t => t.id === tplId);
+      if (!tpl) return { success: false, error: 'Template not found' };
+      const installed = await skillRecorder.installTemplate(tpl);
+      return { success: true, skill: installed };
+    }
+
+    // ── File Tool Handlers ────────────────────────────────────────
+
+    case 'FILE_GENERATE': {
+      const fg = message.payload as { filename: string; content: string; mimeType?: string };
+      const fileResult = await fileTool.generateFile(fg);
+      return { success: true, result: fileResult };
+    }
+
+    case 'FILE_DOWNLOAD': {
+      const fd = message.payload as { url: string; filename?: string };
+      const dlResult = await fileTool.downloadFile(fd);
+      return { success: true, result: dlResult };
+    }
+
+    case 'FILE_EXPORT_JSON': {
+      const ej = message.payload as { data: unknown; filename?: string };
+      const ejResult = await fileTool.exportJSON(ej.data, ej.filename);
+      return { success: true, result: ejResult };
+    }
+
+    case 'FILE_EXPORT_CSV': {
+      const ec = message.payload as { headers: string[]; rows: string[][]; filename?: string };
+      const ecResult = await fileTool.exportCSV(ec.headers, ec.rows, ec.filename);
+      return { success: true, result: ecResult };
+    }
+
+    case 'FILE_EXPORT_HTML': {
+      const eh = message.payload as { title: string; bodyContent: string; filename?: string };
+      const ehResult = await fileTool.exportHTML(eh.title, eh.bodyContent, eh.filename);
+      return { success: true, result: ehResult };
+    }
+
+    case 'FILE_EXPORT_MARKDOWN': {
+      const em = message.payload as { title: string; sections: { heading: string; content: string }[]; filename?: string };
+      const emResult = await fileTool.exportMarkdown(em.title, em.sections, em.filename);
+      return { success: true, result: emResult };
+    }
+
+    case 'FILE_EXPORT_CODE': {
+      const ecd = message.payload as { code: string; filename: string; language?: string };
+      const ecdResult = await fileTool.exportCode(ecd.code, ecd.filename, ecd.language);
+      return { success: true, result: ecdResult };
+    }
+
+    case 'FILE_GET_LOG': {
+      const fileLog = await fileTool.getLog((message.payload as { limit?: number })?.limit);
+      return { success: true, log: fileLog };
+    }
+
+    case 'FILE_GET_STATS': {
+      const fileStats = fileTool.getStats();
+      return { success: true, ...fileStats };
+    }
+
+    // ── MCP Server Handlers ───────────────────────────────────────
+
+    case 'MCP_GET_CONFIG': {
+      const mcpConfig = await mcpServer.getConfig();
+      return { success: true, config: mcpConfig };
+    }
+
+    case 'MCP_SET_CONFIG': {
+      await mcpServer.setConfig(message.payload as any);
+      return { success: true };
+    }
+
+    case 'MCP_GET_TOOLS': {
+      const tools = mcpServer.getAvailableTools();
+      return { success: true, tools };
+    }
+
+    case 'MCP_GET_STATS': {
+      const mcpStats = mcpServer.getStats();
+      return { success: true, ...mcpStats };
+    }
+
+    case 'MCP_HANDLE_REQUEST': {
+      const mcpReq = message.payload as any;
+      const mcpResp = await mcpServer.handleExternalMessage(mcpReq);
+      return { success: true, response: mcpResp };
+    }
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
 }
+
+// ── MCP External Message Listener ────────────────────────────────
+// Listen for messages from other extensions (MCP clients)
+chrome.runtime.onMessageExternal?.addListener(
+  (request, sender, sendResponse) => {
+    mcpServer.handleExternalMessage(request, sender.id).then(sendResponse);
+    return true; // async
+  }
+);
 
 async function startTask(payload: { task: string; taskType?: string }): Promise<{ success: boolean; error?: string }> {
   // ALWAYS get the current active tab - don't use stale tabId

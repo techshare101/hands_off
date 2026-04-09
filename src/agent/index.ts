@@ -66,3 +66,16 @@ export { AnthropicClient, ANTHROPIC_MODELS } from './anthropicClient';
 
 export { metaAgent } from './metaAgent';
 export type { PromptPatch, OptimizationExperiment, SiteStrategy, MetaAgentStats, TaskTemplate, TaskScore, VerificationRule } from './metaAgent';
+
+// Tool Modules
+export { apiTool } from './apiTool';
+export type { ApiToolConfig, ApiRequest, ApiResponse, ApiLogEntry, SavedEndpoint, HttpMethod } from './apiTool';
+
+export { skillRecorder, BUILT_IN_TEMPLATES } from './skillRecorder';
+export type { RecordingSession, RecordedStep, SkillVariable, SkillTemplate, SkillCategory } from './skillRecorder';
+
+export { fileTool, composeJSON, composeCSV, composeHTML, composeMarkdown, composeCodeFile } from './fileTool';
+export type { FileGenerateRequest, FileDownloadRequest, FileResult, FileLogEntry } from './fileTool';
+
+export { mcpServer } from './mcpServer';
+export type { MCPServerConfig, MCPRequest, MCPResponse, MCPToolDefinition, MCPResource } from './mcpServer';

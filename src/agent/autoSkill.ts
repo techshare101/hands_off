@@ -458,6 +458,14 @@ class AutoSkillEngine {
     skill.metadata.reliability = this.computeReliability(skill.metadata);
   }
 
+  // ── Manual Skill Save (from SkillRecorder / external) ──────────
+  async saveSkill(skill: Skill): Promise<void> {
+    await this.init();
+    this.skills.set(skill.id, skill);
+    await this.persist();
+    console.log(`[AutoSkill] Saved skill: ${skill.name} (${skill.id})`);
+  }
+
   private computeReliability(
     metadata: Pick<SkillMetadata, 'totalExecutions' | 'successRate'>
   ): SkillMetadata['reliability'] {
