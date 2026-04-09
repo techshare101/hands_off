@@ -75,6 +75,12 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpOrigins, setMcpOrigins] = useState<string[]>([]);
   const [newOrigin, setNewOrigin] = useState('');
 
+  // Test states
+  const [apiTestResult, setApiTestResult] = useState<string | null>(null);
+  const [fileTestResult, setFileTestResult] = useState<string | null>(null);
+  const [recorderTestResult, setRecorderTestResult] = useState<string | null>(null);
+  const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
+
   useEffect(() => {
     const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config'];
     Object.values(PROVIDER_META).forEach(m => {
@@ -394,6 +400,38 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                 {apiDomains.length === 0 && (
                   <p className="text-[10px] text-amber-400">No domains whitelisted. Agent cannot make API calls until you add one.</p>
                 )}
+                {apiDomains.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      setApiTestResult('testing...');
+                      try {
+                        // Save config first so the domain is whitelisted
+                        await chrome.runtime.sendMessage({ type: 'API_SET_CONFIG', payload: { enabled: true, allowedDomains: apiDomains } });
+                        const testDomain = apiDomains[0];
+                        const testUrl = testDomain.includes('jsonplaceholder') ? 'https://jsonplaceholder.typicode.com/posts/1'
+                          : testDomain.includes('httpbin') ? 'https://httpbin.org/get'
+                          : `https://${testDomain}`;
+                        const res = await chrome.runtime.sendMessage({ type: 'API_EXECUTE', payload: { method: 'GET', url: testUrl, timeout: 10000 } });
+                        if (res?.result?.success) {
+                          setApiTestResult(`${res.result.status} OK (${res.result.latencyMs}ms)`);
+                        } else {
+                          setApiTestResult(`Failed: ${res?.result?.error || 'Unknown error'}`);
+                        }
+                      } catch (e: any) {
+                        setApiTestResult(`Error: ${e.message}`);
+                      }
+                      setTimeout(() => setApiTestResult(null), 6000);
+                    }}
+                    className={`mt-2 w-full py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      apiTestResult?.includes('OK') ? 'bg-emerald-500/20 text-emerald-400' :
+                      apiTestResult?.includes('Failed') || apiTestResult?.includes('Error') ? 'bg-red-500/20 text-red-400' :
+                      apiTestResult === 'testing...' ? 'bg-sky-500/20 text-sky-400 animate-pulse' :
+                      'bg-sky-500/10 text-sky-400 hover:bg-sky-500/20'
+                    }`}
+                  >
+                    {apiTestResult || `Test API call to ${apiDomains[0]}`}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -416,7 +454,33 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
               Record browser actions and replay them as reusable skills. Manage recordings in the Learning tab.
             </p>
             {recorderEnabled && (
-              <p className="text-[10px] text-emerald-400 mt-1">Active — Use the Learning tab to start/stop recordings and install templates.</p>
+              <div className="mt-2 space-y-2">
+                <p className="text-[10px] text-emerald-400">Active — Use the Learning tab to start/stop recordings and install templates.</p>
+                <button
+                  onClick={async () => {
+                    setRecorderTestResult('installing...');
+                    try {
+                      const res = await chrome.runtime.sendMessage({ type: 'RECORDER_INSTALL_TEMPLATE', payload: { templateId: 'tpl_google_search' } });
+                      if (res?.success) {
+                        setRecorderTestResult(`Installed: ${res.skill?.name || 'Google Search'}`);
+                      } else {
+                        setRecorderTestResult(`Failed: ${res?.error}`);
+                      }
+                    } catch (e: any) {
+                      setRecorderTestResult(`Error: ${e.message}`);
+                    }
+                    setTimeout(() => setRecorderTestResult(null), 5000);
+                  }}
+                  className={`w-full py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    recorderTestResult?.includes('Installed') ? 'bg-emerald-500/20 text-emerald-400' :
+                    recorderTestResult?.includes('Failed') || recorderTestResult?.includes('Error') ? 'bg-red-500/20 text-red-400' :
+                    recorderTestResult === 'installing...' ? 'bg-rose-500/20 text-rose-400 animate-pulse' :
+                    'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                  }`}
+                >
+                  {recorderTestResult || 'Install "Google Search" skill template'}
+                </button>
+              </div>
             )}
           </div>
 
@@ -438,7 +502,51 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
               Generate and download files: JSON, CSV, HTML reports, Markdown, code files.
             </p>
             {fileToolEnabled && (
-              <p className="text-[10px] text-emerald-400 mt-1">Active — Agent can generate and save files to your Downloads folder.</p>
+              <div className="mt-2 space-y-2">
+                <p className="text-[10px] text-emerald-400">Active — Agent can generate and save files to your Downloads folder.</p>
+                <button
+                  onClick={async () => {
+                    setFileTestResult('generating...');
+                    try {
+                      const res = await chrome.runtime.sendMessage({
+                        type: 'FILE_EXPORT_HTML',
+                        payload: {
+                          title: 'HandOff Test Report',
+                          bodyContent: `
+                            <h2>File Generator Works!</h2>
+                            <p>This report was generated by HandOff's File Tool at <strong>${new Date().toLocaleString()}</strong>.</p>
+                            <table>
+                              <tr><th>Tool</th><th>Status</th></tr>
+                              <tr><td>API Tool</td><td>Ready</td></tr>
+                              <tr><td>Skill Recorder</td><td>Ready</td></tr>
+                              <tr><td>File Generator</td><td>Active</td></tr>
+                              <tr><td>MCP Server</td><td>Ready</td></tr>
+                            </table>
+                            <p>Check your <strong>Downloads</strong> folder for this file.</p>
+                          `,
+                          filename: 'handoff-test-report.html',
+                        },
+                      });
+                      if (res?.result?.success) {
+                        setFileTestResult('Downloaded! Check your Downloads folder');
+                      } else {
+                        setFileTestResult(`Failed: ${res?.result?.error || 'Unknown error'}`);
+                      }
+                    } catch (e: any) {
+                      setFileTestResult(`Error: ${e.message}`);
+                    }
+                    setTimeout(() => setFileTestResult(null), 6000);
+                  }}
+                  className={`w-full py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    fileTestResult?.includes('Downloaded') ? 'bg-emerald-500/20 text-emerald-400' :
+                    fileTestResult?.includes('Failed') || fileTestResult?.includes('Error') ? 'bg-red-500/20 text-red-400' :
+                    fileTestResult === 'generating...' ? 'bg-teal-500/20 text-teal-400 animate-pulse' :
+                    'bg-teal-500/10 text-teal-400 hover:bg-teal-500/20'
+                  }`}
+                >
+                  {fileTestResult || 'Generate test HTML report'}
+                </button>
+              </div>
             )}
           </div>
 
@@ -525,6 +633,35 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                   )}
                   <p className="text-[10px] text-handoff-muted mt-1">Leave empty to allow all extensions. Add IDs to restrict access.</p>
                 </div>
+
+                <button
+                  onClick={async () => {
+                    setMcpTestResult('testing...');
+                    try {
+                      await chrome.runtime.sendMessage({ type: 'MCP_SET_CONFIG', payload: { enabled: true } });
+                      const res = await chrome.runtime.sendMessage({
+                        type: 'MCP_HANDLE_REQUEST',
+                        payload: { jsonrpc: '2.0', id: 'test-1', method: 'ping' },
+                      });
+                      if (res?.response?.result?.status === 'ok') {
+                        setMcpTestResult('MCP Server responding (ping OK)');
+                      } else {
+                        setMcpTestResult(`Failed: ${JSON.stringify(res?.response?.error || 'no response')}`);
+                      }
+                    } catch (e: any) {
+                      setMcpTestResult(`Error: ${e.message}`);
+                    }
+                    setTimeout(() => setMcpTestResult(null), 5000);
+                  }}
+                  className={`w-full py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    mcpTestResult?.includes('OK') ? 'bg-emerald-500/20 text-emerald-400' :
+                    mcpTestResult?.includes('Failed') || mcpTestResult?.includes('Error') ? 'bg-red-500/20 text-red-400' :
+                    mcpTestResult === 'testing...' ? 'bg-violet-500/20 text-violet-400 animate-pulse' :
+                    'bg-violet-500/10 text-violet-400 hover:bg-violet-500/20'
+                  }`}
+                >
+                  {mcpTestResult || 'Test MCP Server (ping)'}
+                </button>
               </div>
             )}
           </div>
