@@ -177,8 +177,8 @@ class FileToolEngine {
 
     try {
       const mimeType = request.mimeType || getMimeType(request.filename);
-      const blob = new Blob([request.content], { type: mimeType });
-      const dataUrl = await this.blobToDataUrl(blob);
+      const contentSize = new TextEncoder().encode(request.content).length;
+      const dataUrl = this.textToDataUrl(request.content, mimeType);
 
       const downloadId = await chrome.downloads.download({
         url: dataUrl,
@@ -190,13 +190,13 @@ class FileToolEngine {
       await this.logAction({
         action: 'generate',
         filename: request.filename,
-        sizeBytes: blob.size,
+        sizeBytes: contentSize,
         mimeType,
         success: true,
         triggeredBy,
       });
 
-      console.log(`[FileTool] Generated: ${request.filename} (${blob.size} bytes)`);
+      console.log(`[FileTool] Generated: ${request.filename} (${contentSize} bytes)`);
 
       return {
         success: true,
@@ -324,13 +324,16 @@ class FileToolEngine {
 
   // ── Helpers ───────────────────────────────────────────────────────
 
-  private blobToDataUrl(blob: Blob): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+  // Service-worker-safe data URL creation (FileReader is NOT available in MV3 workers)
+  private textToDataUrl(content: string, mimeType: string): string {
+    // Encode to base64 — handles ASCII; for unicode we encode to UTF-8 first
+    const utf8Bytes = new TextEncoder().encode(content);
+    let binary = '';
+    for (let i = 0; i < utf8Bytes.length; i++) {
+      binary += String.fromCharCode(utf8Bytes[i]);
+    }
+    const base64 = btoa(binary);
+    return `data:${mimeType};base64,${base64}`;
   }
 
   formatForPrompt(result: FileResult): string {
