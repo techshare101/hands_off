@@ -25,6 +25,7 @@ import { a2ui, A2UI_TEMPLATES, validateWidgetPayload } from '../agent/a2ui';
 import type { A2UIWidgetPayload, A2UIUserAction } from '../agent/a2ui';
 import { mcpClient } from '../agent/mcpClient';
 import { a2aProtocol } from '../agent/a2aProtocol';
+import { keepAlive } from './keepAlive';
 
 // LLM Client interface (all clients implement this)
 interface LLMClient {
@@ -35,6 +36,7 @@ interface LLMClient {
 // State
 let currentAgent: AgentCore | null = null;
 let currentTabId: number | null = null;
+let currentTaskId: string | null = null;
 let pendingApproval: {
   resolve: (decision: 'approve' | 'reject' | 'override') => void;
   action: ProposedAction;
@@ -91,8 +93,23 @@ async function handleMessage(
   console.log('[Worker] Received:', message.type);
 
   switch (message.type) {
-    case 'START_TASK':
-      return startTask(message.payload as { task: string; taskType?: string });
+    case 'START_TASK': {
+      const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      currentTaskId = taskId;
+      // Start keep-alive checkpoint for this task
+      keepAlive.startTask(taskId, {
+        task: (message.payload as { task: string }).task,
+        tabId: currentTabId || 0,
+        iteration: 0,
+        actionHistory: [],
+        correctionContext: null,
+        retryCount: 0,
+        consecutiveScrolls: 0,
+        lastActionSignature: null,
+        autonomyLevel: 'balanced',
+      }).catch(console.error);
+      return await startTask(message.payload as { task: string; taskType?: string });
+    }
 
     case 'PAUSE_TASK':
       if (currentAgent) {
@@ -665,6 +682,51 @@ async function handleMessage(
 
 // ── MCP External Message Listener ────────────────────────────────
 // Listen for messages from other extensions (MCP clients)
+// ── Keep-Alive Message Handlers ────────────────────────────────
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'KEEPALIVE_PING') {
+    sendResponse({ pong: true, timestamp: Date.now() });
+    return false;
+  }
+  if (message.type === 'GET_AGENT_STATE') {
+    if (currentAgent) {
+      sendResponse({
+        state: {
+          task: currentAgent['config']?.task,
+          tabId: currentTabId,
+          iteration: currentAgent['actionHistory']?.length || 0,
+          actionHistory: currentAgent['actionHistory'] || [],
+          correctionContext: currentAgent['correctionContext'] || null,
+          retryCount: currentAgent['retryCount'] || 0,
+          consecutiveScrolls: currentAgent['consecutiveScrolls'] || 0,
+          lastActionSignature: currentAgent['recentActionSignatures']?.[currentAgent['recentActionSignatures'].length - 1] || null,
+          autonomyLevel: currentAgent['autonomyLevel'] || 'balanced',
+        },
+      });
+    } else {
+      sendResponse({ state: null });
+    }
+    return false;
+  }
+  if (message.type === 'RESUME_FROM_CHECKPOINT') {
+    const checkpoint = message.payload as import('./keepAlive').AgentCheckpoint;
+    sendResponse({ success: true, message: 'Checkpoint acknowledged' });
+    return false;
+  }
+});
+
+// Initialize keep-alive on startup
+keepAlive.init().then(() => {
+  console.log('[Worker] Keep-alive initialized');
+  // Check for checkpoint to resume
+  keepAlive.loadCheckpoint().then((checkpoint) => {
+    if (checkpoint) {
+      console.log('[Worker] Found checkpoint for task:', checkpoint.taskId);
+    }
+  });
+});
+
 chrome.runtime.onMessageExternal?.addListener(
   (request, sender, sendResponse) => {
     mcpServer.handleExternalMessage(request, sender.id).then(sendResponse);

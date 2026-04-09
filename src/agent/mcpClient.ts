@@ -3,6 +3,8 @@
 // Allows the agent to discover and use tools from any MCP-compliant server.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { mcpValidator } from './mcpValidator';
+
 const STORAGE_KEY = 'handoff_mcp_client_config';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -178,6 +180,18 @@ class MCPClientEngine {
     const server = this.servers.get(serverId);
     if (!server) throw new Error(`Server ${serverId} not found`);
     if (!server.enabled) throw new Error(`Server ${server.name} is disabled`);
+
+    // Find the tool schema for validation
+    const tool = this.getAllCachedTools().find(t => t.serverId === serverId && t.name === toolName);
+    if (tool) {
+      const validation = mcpValidator.validate(args, tool.inputSchema as Record<string, unknown>);
+      if (!validation.valid) {
+        console.error(`[MCPClient] Validation failed for ${toolName}:`, validation.errors);
+        throw new Error(`Invalid arguments for ${toolName}: ${validation.errors.join(', ')}`);
+      }
+      // Use sanitized args
+      args = validation.normalizedArgs;
+    }
 
     console.log(`[MCPClient] Calling tool ${toolName} on ${server.name}`);
     const result = await this.sendRequest(server, 'tools/call', {

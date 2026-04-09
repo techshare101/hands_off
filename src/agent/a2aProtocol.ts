@@ -4,6 +4,8 @@
 // allows external agents to discover and use HandOff's capabilities.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { executeWithCircuitBreaker } from './a2aCircuitBreaker';
+
 const STORAGE_KEY = 'handoff_a2a_config';
 
 // ── Agent Card (self-description) ─────────────────────────────────────────
@@ -218,8 +220,8 @@ class A2AProtocolEngine {
 
     this.activeTasks.set(task.taskId, task);
 
-    // Send to remote agent
-    try {
+    // Send to remote agent with circuit breaker
+    const cbResult = await executeWithCircuitBreaker(agentId, async () => {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (agent.apiKey) headers['Authorization'] = `Bearer ${agent.apiKey}`;
 
@@ -234,23 +236,23 @@ class A2AProtocolEngine {
         } satisfies A2AMessage),
       });
 
-      if (res.ok) {
-        const result = await res.json();
-        task.status = result.status || 'accepted';
-        task.updatedAt = Date.now();
-        if (result.result) task.result = result.result;
-      } else {
-        task.status = 'failed';
-        task.error = `Agent returned ${res.status}`;
-      }
-    } catch (error) {
+      if (!res.ok) throw new Error(`Agent returned ${res.status}`);
+      return res.json();
+    }, { description: `A2A sendTask to ${agent.card.name}`, timeoutMs: 30000 });
+
+    if (cbResult.success) {
+      const result = cbResult.result as { status?: TaskStatus; result?: Record<string, unknown> };
+      task.status = result.status || 'accepted';
+      task.updatedAt = Date.now();
+      if (result.result) task.result = result.result;
+    } else {
       task.status = 'failed';
-      task.error = error instanceof Error ? error.message : 'Network error';
+      task.error = cbResult.error;
     }
 
     this.activeTasks.set(task.taskId, task);
     this.emit({ type: 'task_updated', task });
-    console.log(`[A2A] Task ${task.taskId} sent to ${agent.card.name}: ${task.status}`);
+    console.log(`[A2A] Task ${task.taskId} sent to ${agent.card.name}: ${task.status}${!cbResult.success && cbResult.circuitOpen ? ' (circuit breaker open)' : ''}`);
     return task;
   }
 
