@@ -1,11 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Send, Loader2, Mic } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 
 export default function TaskInput() {
   const [input, setInput] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { status, startTask } = useAgentStore();
   const isRunning = status !== 'idle' && status !== 'complete' && status !== 'error';
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+    }
+  }, [input]);
 
   // Listen for voice input from popup
   useEffect(() => {
@@ -46,12 +56,14 @@ export default function TaskInput() {
     <div className="p-4 border-b border-handoff-surface">
       <form onSubmit={handleSubmit} className="relative">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="What should I do on this page?"
           disabled={isRunning}
-          className="w-full bg-handoff-surface text-white placeholder-handoff-muted rounded-xl px-4 py-3 pr-24 resize-none focus:outline-none focus:ring-2 focus:ring-handoff-primary/50 disabled:opacity-50"
+          className="w-full bg-handoff-surface text-white placeholder-handoff-muted rounded-xl px-4 py-3 pr-24 resize-none focus:outline-none focus:ring-2 focus:ring-handoff-primary/50 disabled:opacity-50 overflow-y-auto"
           rows={2}
+          style={{ maxHeight: '160px' }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();

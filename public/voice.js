@@ -117,15 +117,23 @@ micBtn.addEventListener('click', async () => {
   }
 });
 
-sendBtn.addEventListener('click', () => {
+sendBtn.addEventListener('click', async () => {
   const text = finalTranscript.trim() || transcript.textContent.trim();
   if (text && text !== 'Your speech will appear here...') {
-    // Send to parent extension
-    chrome.runtime.sendMessage({ 
-      type: 'VOICE_INPUT', 
-      payload: { text } 
-    });
-    window.close();
+    // Stop recognition first so it doesn't interfere
+    if (isListening) stopListening();
+
+    // Send to parent extension — await to ensure delivery before closing
+    try {
+      await chrome.runtime.sendMessage({ 
+        type: 'VOICE_INPUT', 
+        payload: { text } 
+      });
+    } catch (e) {
+      console.warn('Send message error (non-critical):', e);
+    }
+    // Small delay to ensure sidepanel receives and processes the message
+    setTimeout(() => window.close(), 150);
   }
 });
 
