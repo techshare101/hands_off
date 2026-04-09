@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Key, Save, Check, Eye, Brain } from 'lucide-react';
+import { X, Key, Save, Check, Eye, Brain, Globe, Video, FileDown, Plug, Plus, Trash2 } from 'lucide-react';
 import { OPENROUTER_VISION_MODELS } from '../../agent/openRouterClient';
 import { ROUTELLM_MODELS } from '../../agent/routeLLMClient';
 import { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from '../../agent/openAICompatClient';
@@ -57,8 +57,26 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [hfEnabled, setHfEnabled] = useState(false);
   const [hfStatus, setHfStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
 
+  // API Tool state
+  const [apiEnabled, setApiEnabled] = useState(false);
+  const [apiDomains, setApiDomains] = useState<string[]>([]);
+  const [newDomain, setNewDomain] = useState('');
+
+  // Skill Recorder state
+  const [recorderEnabled, setRecorderEnabled] = useState(true);
+
+  // File Tool state
+  const [fileToolEnabled, setFileToolEnabled] = useState(true);
+
+  // MCP Server state
+  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const [mcpAuthRequired, setMcpAuthRequired] = useState(false);
+  const [mcpAuthToken, setMcpAuthToken] = useState('');
+  const [mcpOrigins, setMcpOrigins] = useState<string[]>([]);
+  const [newOrigin, setNewOrigin] = useState('');
+
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
@@ -69,6 +87,18 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       if (result.ark_endpoint) setArkEndpoint(result.ark_endpoint);
       if (result.hf_api_token) setHfToken(result.hf_api_token);
       if (result.hf_enabled) setHfEnabled(result.hf_enabled);
+      if (result.handoff_api_tool_config) {
+        const apiCfg = result.handoff_api_tool_config;
+        setApiEnabled(apiCfg.enabled ?? false);
+        setApiDomains(apiCfg.allowedDomains ?? []);
+      }
+      if (result.handoff_mcp_config) {
+        const mcpCfg = result.handoff_mcp_config;
+        setMcpEnabled(mcpCfg.enabled ?? false);
+        setMcpAuthRequired(mcpCfg.requireAuth ?? false);
+        setMcpAuthToken(mcpCfg.authToken ?? '');
+        setMcpOrigins(mcpCfg.allowedOrigins ?? []);
+      }
       const loadedKeys: Record<string, string> = {};
       const loadedModels: Record<string, string> = {};
       Object.entries(PROVIDER_META).forEach(([, meta]) => {
@@ -91,6 +121,13 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       ...models,
     };
     await chrome.storage.local.set(data);
+
+    // Save API Tool config
+    await chrome.runtime.sendMessage({ type: 'API_SET_CONFIG', payload: { enabled: apiEnabled, allowedDomains: apiDomains } });
+
+    // Save MCP Server config
+    await chrome.runtime.sendMessage({ type: 'MCP_SET_CONFIG', payload: { enabled: mcpEnabled, requireAuth: mcpAuthRequired, authToken: mcpAuthToken, allowedOrigins: mcpOrigins } });
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -253,6 +290,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                 <Brain className="w-4 h-4 text-amber-400" />
                 HuggingFace Vision
               </label>
+
               <button
                 onClick={() => setHfEnabled(!hfEnabled)}
                 className={`relative w-10 h-5 rounded-full transition-colors ${hfEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
@@ -291,6 +329,202 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                 <p className="text-[10px] text-handoff-muted">
                   Get your free token from <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">huggingface.co/settings/tokens</a>
                 </p>
+              </div>
+            )}
+          </div>
+
+          {/* ── API Tool ──────────────────────────────────── */}
+          <div className="border-t border-handoff-dark pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-white flex items-center gap-2">
+                <Globe className="w-4 h-4 text-sky-400" />
+                API Tool
+              </label>
+              <button
+                onClick={() => setApiEnabled(!apiEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${apiEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${apiEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <p className="text-xs text-handoff-muted mb-3">
+              Call external REST APIs (Stripe, Slack, webhooks). Requires domain whitelist for security.
+            </p>
+            {apiEnabled && (
+              <div className="space-y-2">
+                <label className="block text-xs text-handoff-muted">Allowed Domains</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newDomain}
+                    onChange={(e) => setNewDomain(e.target.value)}
+                    placeholder="e.g. api.stripe.com"
+                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newDomain.trim()) {
+                        setApiDomains([...apiDomains, newDomain.trim().toLowerCase()]);
+                        setNewDomain('');
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (newDomain.trim()) {
+                        setApiDomains([...apiDomains, newDomain.trim().toLowerCase()]);
+                        setNewDomain('');
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {apiDomains.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {apiDomains.map((d, i) => (
+                      <span key={i} className="flex items-center gap-1 bg-handoff-dark text-xs text-sky-300 px-2 py-1 rounded-lg">
+                        {d}
+                        <button onClick={() => setApiDomains(apiDomains.filter((_, j) => j !== i))} className="text-handoff-muted hover:text-red-400">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {apiDomains.length === 0 && (
+                  <p className="text-[10px] text-amber-400">No domains whitelisted. Agent cannot make API calls until you add one.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Skill Recorder ────────────────────────────── */}
+          <div className="border-t border-handoff-dark pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-white flex items-center gap-2">
+                <Video className="w-4 h-4 text-rose-400" />
+                Skill Recorder
+              </label>
+              <button
+                onClick={() => setRecorderEnabled(!recorderEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${recorderEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${recorderEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <p className="text-xs text-handoff-muted mb-1">
+              Record browser actions and replay them as reusable skills. Manage recordings in the Learning tab.
+            </p>
+            {recorderEnabled && (
+              <p className="text-[10px] text-emerald-400 mt-1">Active — Use the Learning tab to start/stop recordings and install templates.</p>
+            )}
+          </div>
+
+          {/* ── File Tool ─────────────────────────────────── */}
+          <div className="border-t border-handoff-dark pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-white flex items-center gap-2">
+                <FileDown className="w-4 h-4 text-teal-400" />
+                File Generator
+              </label>
+              <button
+                onClick={() => setFileToolEnabled(!fileToolEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${fileToolEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${fileToolEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <p className="text-xs text-handoff-muted mb-1">
+              Generate and download files: JSON, CSV, HTML reports, Markdown, code files.
+            </p>
+            {fileToolEnabled && (
+              <p className="text-[10px] text-emerald-400 mt-1">Active — Agent can generate and save files to your Downloads folder.</p>
+            )}
+          </div>
+
+          {/* ── MCP Server ────────────────────────────────── */}
+          <div className="border-t border-handoff-dark pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-white flex items-center gap-2">
+                <Plug className="w-4 h-4 text-violet-400" />
+                MCP Server
+              </label>
+              <button
+                onClick={() => setMcpEnabled(!mcpEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${mcpEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${mcpEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <p className="text-xs text-handoff-muted mb-3">
+              Expose HandOff as an MCP tool server. External agents (Claude, Cursor) can control the browser through HandOff.
+            </p>
+            {mcpEnabled && (
+              <div className="space-y-3">
+                {/* Auth toggle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-handoff-muted">Require Auth Token</span>
+                  <button
+                    onClick={() => setMcpAuthRequired(!mcpAuthRequired)}
+                    className={`relative w-8 h-4 rounded-full transition-colors ${mcpAuthRequired ? 'bg-violet-500' : 'bg-handoff-dark'}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${mcpAuthRequired ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
+
+                {mcpAuthRequired && (
+                  <input
+                    type="password"
+                    value={mcpAuthToken}
+                    onChange={(e) => setMcpAuthToken(e.target.value)}
+                    placeholder="Auth token for MCP clients"
+                    className="w-full bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                  />
+                )}
+
+                {/* Allowed origins */}
+                <div>
+                  <label className="block text-xs text-handoff-muted mb-1">Allowed Extension IDs</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newOrigin}
+                      onChange={(e) => setNewOrigin(e.target.value)}
+                      placeholder="Extension ID"
+                      className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newOrigin.trim()) {
+                          setMcpOrigins([...mcpOrigins, newOrigin.trim()]);
+                          setNewOrigin('');
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (newOrigin.trim()) {
+                          setMcpOrigins([...mcpOrigins, newOrigin.trim()]);
+                          setNewOrigin('');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl text-xs font-medium bg-violet-500/20 text-violet-400 hover:bg-violet-500/30 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {mcpOrigins.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {mcpOrigins.map((o, i) => (
+                        <span key={i} className="flex items-center gap-1 bg-handoff-dark text-xs text-violet-300 px-2 py-1 rounded-lg">
+                          {o.slice(0, 16)}...
+                          <button onClick={() => setMcpOrigins(mcpOrigins.filter((_, j) => j !== i))} className="text-handoff-muted hover:text-red-400">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-handoff-muted mt-1">Leave empty to allow all extensions. Add IDs to restrict access.</p>
+                </div>
               </div>
             )}
           </div>
