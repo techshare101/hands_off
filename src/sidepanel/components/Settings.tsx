@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Key, Save, Check, Eye, Brain, Globe, Video, FileDown, Plug, Plus, Trash2 } from 'lucide-react';
+import { X, Key, Save, Check, Eye, Brain, Globe, Video, FileDown, Plug, Plus, Trash2, Share2 } from 'lucide-react';
 import { OPENROUTER_VISION_MODELS } from '../../agent/openRouterClient';
 import { ROUTELLM_MODELS } from '../../agent/routeLLMClient';
 import { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from '../../agent/openAICompatClient';
@@ -82,6 +82,12 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [newMcpApiKey, setNewMcpApiKey] = useState('');
   const [mcpClientTestResult, setMcpClientTestResult] = useState<string | null>(null);
 
+  // A2A state (connect to remote agents)
+  const [a2aAgents, setA2aAgents] = useState<{id: string; endpoint: string; card: {name: string; description: string; capabilities: {id: string; name: string}[]}}[]>([]);
+  const [newA2aEndpoint, setNewA2aEndpoint] = useState('');
+  const [newA2aApiKey, setNewA2aApiKey] = useState('');
+  const [a2aTestResult, setA2aTestResult] = useState<string | null>(null);
+
   // Test states
   const [apiTestResult, setApiTestResult] = useState<string | null>(null);
   const [fileTestResult, setFileTestResult] = useState<string | null>(null);
@@ -89,7 +95,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config', 'handoff_a2a_config'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
@@ -114,6 +120,9 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       }
       if (result.handoff_mcp_client_config) {
         setMcpClientServers(result.handoff_mcp_client_config || []);
+      }
+      if (result.handoff_a2a_config?.remoteAgents) {
+        setA2aAgents(result.handoff_a2a_config.remoteAgents || []);
       }
       const loadedKeys: Record<string, string> = {};
       const loadedModels: Record<string, string> = {};
@@ -685,6 +694,112 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                 }`}>
                   {mcpClientTestResult}
                 </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── A2A Agent-to-Agent ─────────────────────────── */}
+          <div className="border-t border-handoff-dark pt-4">
+            <label className="text-sm font-medium text-white flex items-center gap-2 mb-2">
+              <Share2 className="w-4 h-4 text-orange-400" />
+              A2A Agents
+            </label>
+            <p className="text-xs text-handoff-muted mb-3">
+              Connect to remote AI agents. HandOff can delegate entire tasks to them (e.g. &quot;Create a course on LearnForge&quot;).
+            </p>
+            <div className="space-y-3">
+              {a2aAgents.map((agent) => (
+                <div key={agent.id} className="bg-handoff-dark rounded-xl p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-xs text-white font-medium">{agent.card?.name || 'Unknown'}</div>
+                    <button
+                      onClick={async () => {
+                        await chrome.runtime.sendMessage({ type: 'A2A_REMOVE_AGENT', payload: { agentId: agent.id } });
+                        setA2aAgents(a2aAgents.filter(a => a.id !== agent.id));
+                      }}
+                      className="text-handoff-muted hover:text-red-400"
+                    ><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <div className="text-[10px] text-handoff-muted truncate mb-1">{agent.endpoint}</div>
+                  {agent.card?.capabilities?.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {agent.card.capabilities.slice(0, 4).map((cap) => (
+                        <span key={cap.id} className="text-[9px] bg-orange-500/10 text-orange-400 px-1.5 py-0.5 rounded">{cap.name}</span>
+                      ))}
+                      {agent.card.capabilities.length > 4 && (
+                        <span className="text-[9px] text-handoff-muted">+{agent.card.capabilities.length - 4} more</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newA2aEndpoint}
+                  onChange={(e) => setNewA2aEndpoint(e.target.value)}
+                  placeholder="Agent endpoint (e.g. https://app.com/api/a2a)"
+                  className="w-full bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={newA2aApiKey}
+                    onChange={(e) => setNewA2aApiKey(e.target.value)}
+                    placeholder="API key (optional)"
+                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!newA2aEndpoint.trim()) return;
+                      setA2aTestResult('Discovering agent...');
+                      try {
+                        const discoverRes = await chrome.runtime.sendMessage({
+                          type: 'A2A_DISCOVER_AGENT',
+                          payload: { endpoint: newA2aEndpoint.trim(), apiKey: newA2aApiKey.trim() || undefined },
+                        });
+                        if (discoverRes?.success && discoverRes.result) {
+                          const card = discoverRes.result;
+                          const regRes = await chrome.runtime.sendMessage({
+                            type: 'A2A_REGISTER_AGENT',
+                            payload: {
+                              card,
+                              endpoint: newA2aEndpoint.trim(),
+                              apiKey: newA2aApiKey.trim() || undefined,
+                              trusted: true,
+                            },
+                          });
+                          if (regRes?.success && regRes.result) {
+                            setA2aAgents([...a2aAgents, regRes.result]);
+                            setNewA2aEndpoint('');
+                            setNewA2aApiKey('');
+                            setA2aTestResult(`Connected to ${card.name}! (${card.capabilities?.length || 0} capabilities)`);
+                          }
+                        } else {
+                          setA2aTestResult('Discovery failed — agent did not return a valid card');
+                        }
+                      } catch (e: any) {
+                        setA2aTestResult(`Error: ${e.message}`);
+                      }
+                      setTimeout(() => setA2aTestResult(null), 5000);
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 transition-colors"
+                  >
+                    Discover
+                  </button>
+                </div>
+              </div>
+              {a2aTestResult && (
+                <div className={`text-xs py-1.5 px-3 rounded-lg text-center ${
+                  a2aTestResult.includes('Connected') ? 'bg-emerald-500/20 text-emerald-400'
+                  : a2aTestResult.includes('Error') || a2aTestResult.includes('failed') ? 'bg-red-500/20 text-red-400'
+                  : 'bg-orange-500/20 text-orange-400 animate-pulse'
+                }`}>
+                  {a2aTestResult}
+                </div>
+              )}
+              {a2aAgents.length === 0 && !a2aTestResult && (
+                <p className="text-[10px] text-handoff-muted text-center">No remote agents connected. Enter an endpoint and click Discover.</p>
               )}
             </div>
           </div>
