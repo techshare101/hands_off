@@ -65,8 +65,8 @@ class KeepAliveEngine {
       console.warn('[KeepAlive] Failed to create alarm:', error);
     }
 
-    // Listen for SW lifecycle events
-    self.addEventListener('beforeunload', this.onBeforeUnload.bind(this));
+    // Note: beforeunload is NOT supported in MV3 service workers
+    // Instead we rely on checkpoint saves during heartbeat alarms
 
     // Check for existing checkpoint on startup
     await this.checkForCheckpoint();
@@ -94,16 +94,6 @@ class KeepAliveEngine {
       await chrome.runtime.sendMessage({ type: 'KEEPALIVE_PING' });
     } catch {
       // Sidepanel may not be open — that's fine
-    }
-  }
-
-  // ── Before Unload Handler ─────────────────────────────────────────
-
-  private async onBeforeUnload(): Promise<void> {
-    // Emergency checkpoint before Chrome kills us
-    if (this.state.activeTaskId) {
-      await this.saveCheckpoint();
-      console.log('[KeepAlive] Emergency checkpoint saved before unload');
     }
   }
 
