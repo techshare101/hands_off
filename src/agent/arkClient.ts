@@ -122,17 +122,20 @@ export class ArkVisionClient {
 
       if (this.backend === 'ollama') {
         // Ollama health check — list models
+        console.log(`[Ark] Checking Ollama at ${this.endpoint}/api/tags`);
         const res = await fetch(`${this.endpoint}/api/tags`, {
           method: 'GET',
           signal: controller.signal,
         });
         clearTimeout(timeout);
+        console.log(`[Ark] Ollama health response: ${res.status}`);
         if (res.ok) {
           const data = await res.json();
           const models = (data.models || []).map((m: { name: string }) => m.name);
           console.log('[Ark] Ollama models available:', models);
           return true;
         }
+        console.warn('[Ark] Ollama responded but not OK:', res.status);
         return false;
       } else {
         // Original Ark server health check
@@ -145,7 +148,8 @@ export class ArkVisionClient {
         clearTimeout(timeout);
         return res.status < 500;
       }
-    } catch {
+    } catch (e) {
+      console.error('[Ark] Health check failed:', e);
       return false;
     }
   }

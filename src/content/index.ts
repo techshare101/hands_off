@@ -1,5 +1,7 @@
 // Content script - runs in the context of web pages
 // Executes actions on behalf of the agent
+// Wrapped in IIFE to avoid global scope variable collisions
+(function() {
 
 interface ActionPayload {
   type: 'click' | 'type' | 'scroll' | 'wait' | 'press';
@@ -646,3 +648,5 @@ async function performKeyPress(key: string): Promise<void> {
   type: performType,
   scroll: performScroll,
 };
+
+})(); // end IIFE
