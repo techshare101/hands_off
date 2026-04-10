@@ -51,7 +51,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [models, setModels] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [arkEnabled, setArkEnabled] = useState(false);
-  const [arkEndpoint, setArkEndpoint] = useState('http://127.0.0.1:8001');
+  const [arkEndpoint, setArkEndpoint] = useState('http://127.0.0.1:11434');
+  const [arkModel, setArkModel] = useState('gemma4:e4b');
   const [arkStatus, setArkStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
   const [hfToken, setHfToken] = useState('');
   const [hfEnabled, setHfEnabled] = useState(false);
@@ -95,7 +96,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config', 'handoff_a2a_config'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'ark_model', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config', 'handoff_a2a_config'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
@@ -104,6 +105,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       if (result.llmProvider) setProvider(result.llmProvider);
       if (result.ark_enabled) setArkEnabled(result.ark_enabled);
       if (result.ark_endpoint) setArkEndpoint(result.ark_endpoint);
+      if (result.ark_model) setArkModel(result.ark_model);
       if (result.hf_api_token) setHfToken(result.hf_api_token);
       if (result.hf_enabled) setHfEnabled(result.hf_enabled);
       if (result.handoff_api_tool_config) {
@@ -140,6 +142,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       llmProvider: provider,
       ark_enabled: arkEnabled,
       ark_endpoint: arkEndpoint,
+      ark_model: arkModel,
       hf_api_token: hfToken,
       hf_enabled: hfEnabled,
       ...keys,
@@ -262,7 +265,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
             </div>
           )}
 
-          {/* Ark Vision Engine */}
+          {/* Ark Vision Engine (Ollama) */}
           <div className="border-t border-handoff-dark pt-4">
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-white flex items-center gap-2">
@@ -277,7 +280,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
               </button>
             </div>
             <p className="text-xs text-handoff-muted mb-3">
-              Proprietary vision engine for screenshot-based perception. Falls back to selected LLM if unreachable.
+              Local vision engine via Ollama. Uses multimodal models (Gemma4, LLaVA, Molmo) for screenshot analysis. Falls back to selected LLM if unreachable.
             </p>
             {arkEnabled && (
               <div className="space-y-2">
@@ -286,7 +289,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                     type="text"
                     value={arkEndpoint}
                     onChange={(e) => setArkEndpoint(e.target.value)}
-                    placeholder="http://127.0.0.1:8001"
+                    placeholder="http://127.0.0.1:11434"
                     className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   />
                   <button
@@ -304,6 +307,14 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                      arkStatus === 'offline' ? 'Offline' : 'Test'}
                   </button>
                 </div>
+                <input
+                  type="text"
+                  value={arkModel}
+                  onChange={(e) => setArkModel(e.target.value)}
+                  placeholder="gemma4:e4b"
+                  className="w-full bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                />
+                <p className="text-[10px] text-handoff-muted">Model name from Ollama (e.g. gemma4:e4b, llava, moondream)</p>
               </div>
             )}
           </div>

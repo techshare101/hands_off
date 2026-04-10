@@ -6,9 +6,10 @@
 import { ActionSchema, GeminiResponse } from './prompts';
 import { AnalysisRequest, AnalysisResult } from './geminiClient';
 
-const DEFAULT_ENDPOINT = 'http://127.0.0.1:8001';
+const DEFAULT_ENDPOINT = 'http://127.0.0.1:11434';
 const STORAGE_KEY_ENDPOINT = 'ark_endpoint';
 const STORAGE_KEY_ENABLED = 'ark_enabled';
+const STORAGE_KEY_MODEL = 'ark_model';
 
 // Ark Vision raw response format
 interface ArkRawResponse {
@@ -40,11 +41,13 @@ export class ArkVisionClient {
   private initialized = false;
   private requestCount = 0;
   private lastRequestTime = 0;
-  private requestTimeout = 45000; // 45s — model inference can be slow
+  private requestTimeout = 60000; // 60s — local model inference can be slow
   private abortController: AbortController | null = null;
   // Viewport dimensions for coordinate conversion (default 1280x720)
   private viewportWidth = 1280;
   private viewportHeight = 720;
+  private model = 'gemma4:e4b'; // default Ollama vision model
+  private backend: 'ollama' | 'ark' = 'ollama'; // auto-detect from endpoint
 
   constructor() {
     this.loadConfig();
@@ -52,13 +55,22 @@ export class ArkVisionClient {
 
   private async loadConfig(): Promise<void> {
     try {
-      const result = await chrome.storage.local.get([STORAGE_KEY_ENDPOINT, STORAGE_KEY_ENABLED]);
+      const result = await chrome.storage.local.get([STORAGE_KEY_ENDPOINT, STORAGE_KEY_ENABLED, STORAGE_KEY_MODEL]);
       this.endpoint = result[STORAGE_KEY_ENDPOINT] || DEFAULT_ENDPOINT;
       this.enabled = result[STORAGE_KEY_ENABLED] === true;
+      this.model = result[STORAGE_KEY_MODEL] || 'gemma4:e4b';
+      this.backend = this.detectBackend(this.endpoint);
       this.initialized = true;
+      console.log(`[Ark] Config loaded: ${this.backend} backend, model=${this.model}, endpoint=${this.endpoint}`);
     } catch {
       this.initialized = true;
     }
+  }
+
+  private detectBackend(endpoint: string): 'ollama' | 'ark' {
+    // Ollama default port is 11434
+    if (endpoint.includes(':11434') || endpoint.includes('ollama')) return 'ollama';
+    return 'ark';
   }
 
   async isEnabled(): Promise<boolean> {
@@ -73,7 +85,22 @@ export class ArkVisionClient {
 
   async setEndpoint(endpoint: string): Promise<void> {
     this.endpoint = endpoint.replace(/\/+$/, ''); // trim trailing slashes
+    this.backend = this.detectBackend(this.endpoint);
     await chrome.storage.local.set({ [STORAGE_KEY_ENDPOINT]: this.endpoint });
+  }
+
+  async setModel(model: string): Promise<void> {
+    this.model = model;
+    await chrome.storage.local.set({ [STORAGE_KEY_MODEL]: this.model });
+  }
+
+  async getModel(): Promise<string> {
+    if (!this.initialized) await this.loadConfig();
+    return this.model;
+  }
+
+  getBackend(): string {
+    return this.backend;
   }
 
   async getEndpoint(): Promise<string> {
@@ -93,19 +120,31 @@ export class ArkVisionClient {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
-      const res = await fetch(`${this.endpoint}/predict`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: 'ping',
-          image_base64: '',
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-      // Server is available if it responds (even with an error about bad input)
-      return res.status < 500;
+      if (this.backend === 'ollama') {
+        // Ollama health check — list models
+        const res = await fetch(`${this.endpoint}/api/tags`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const data = await res.json();
+          const models = (data.models || []).map((m: { name: string }) => m.name);
+          console.log('[Ark] Ollama models available:', models);
+          return true;
+        }
+        return false;
+      } else {
+        // Original Ark server health check
+        const res = await fetch(`${this.endpoint}/predict`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: 'ping', image_base64: '' }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        return res.status < 500;
+      }
     } catch {
       return false;
     }
@@ -128,36 +167,72 @@ export class ArkVisionClient {
       // Build the prompt for Ark Vision
       const prompt = this.buildPrompt(request);
 
-      // Make request to Ark Vision server
+      // Make request to vision server (Ollama or Ark)
       this.abortController = new AbortController();
       const timeoutId = setTimeout(() => this.abortController?.abort(), this.requestTimeout);
 
-      const response = await fetch(`${this.endpoint}/predict`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          image_base64: imageData,
-        }),
-        signal: this.abortController.signal,
-      });
+      let rawResponse: ArkRawResponse;
 
-      clearTimeout(timeoutId);
-      this.lastRequestTime = Date.now();
-      this.requestCount++;
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[Ark] Server error:', response.status, errorText);
-        return {
-          success: false,
-          error: `Ark Vision server error: ${response.status}`,
-          latencyMs: Date.now() - startTime,
+      if (this.backend === 'ollama') {
+        // Ollama /api/chat with vision
+        const ollamaBody = {
+          model: this.model,
+          messages: [{
+            role: 'system',
+            content: this.buildOllamaSystemPrompt(),
+          }, {
+            role: 'user',
+            content: prompt,
+            images: [imageData],
+          }],
+          stream: false,
+          options: { temperature: 0.1 },
         };
+
+        console.log(`[Ark/Ollama] Sending to ${this.model} (image: ${Math.round(imageData.length / 1024)}KB)`);
+        const response = await fetch(`${this.endpoint}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ollamaBody),
+          signal: this.abortController.signal,
+        });
+
+        clearTimeout(timeoutId);
+        this.lastRequestTime = Date.now();
+        this.requestCount++;
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[Ark/Ollama] Server error:', response.status, errorText);
+          return { success: false, error: `Ollama error: ${response.status} ${errorText}`, latencyMs: Date.now() - startTime };
+        }
+
+        const ollamaResp = await response.json();
+        console.log('[Ark/Ollama] Response:', ollamaResp.message?.content?.slice(0, 200));
+        rawResponse = this.parseOllamaResponse(ollamaResp.message?.content || '');
+      } else {
+        // Original Ark /predict endpoint
+        const response = await fetch(`${this.endpoint}/predict`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, image_base64: imageData }),
+          signal: this.abortController.signal,
+        });
+
+        clearTimeout(timeoutId);
+        this.lastRequestTime = Date.now();
+        this.requestCount++;
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[Ark] Server error:', response.status, errorText);
+          return { success: false, error: `Ark Vision server error: ${response.status}`, latencyMs: Date.now() - startTime };
+        }
+
+        rawResponse = await response.json();
       }
 
-      const rawResponse: ArkRawResponse = await response.json();
-      console.log('[Ark] Raw response:', rawResponse);
+      console.log('[Ark] Parsed response:', rawResponse);
 
       if (rawResponse.error) {
         return {
@@ -358,6 +433,77 @@ export class ArkVisionClient {
       if (sensitive.test(action.text)) return true;
     }
     return false;
+  }
+
+  // ── Ollama Integration ─────────────────────────────────────────
+
+  private buildOllamaSystemPrompt(): string {
+    return `You are a browser automation vision agent. Given a screenshot of a web page and a task, output a JSON object with the next action.
+
+You MUST respond with ONLY valid JSON, no extra text. Format:
+{
+  "thought": "what I see and my reasoning",
+  "action_type": "click" | "type" | "scroll" | "press" | "navigate" | "wait" | "done",
+  "coordinate": [x, y],  // normalized 0.0-1.0, for click actions
+  "text": "text to type",  // for type actions
+  "key": "Enter",  // for press actions
+  "url": "https://...",  // for navigate actions
+  "direction": "up" | "down"  // for scroll actions
+}
+
+Rules:
+- Coordinates are normalized: (0,0) = top-left, (1,1) = bottom-right
+- For click: provide coordinate of the element center
+- For type: the text will be typed into the currently focused element
+- Use "done" when the task is complete
+- Be precise with coordinates — look at the actual element positions in the screenshot`;
+  }
+
+  private parseOllamaResponse(text: string): ArkRawResponse {
+    // Try to extract JSON from the response
+    try {
+      // Look for JSON block in the response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          thought: parsed.thought || parsed.reasoning || '',
+          action_type: parsed.action_type || parsed.action || 'done',
+          coordinate: parsed.coordinate || undefined,
+          text: parsed.text || undefined,
+          key: parsed.key || undefined,
+          url: parsed.url || undefined,
+          direction: parsed.direction || undefined,
+        };
+      }
+    } catch (e) {
+      console.warn('[Ark/Ollama] Failed to parse JSON response:', e);
+    }
+
+    // Fallback: try to interpret natural language response
+    const lower = text.toLowerCase();
+    if (lower.includes('click') || lower.includes('tap')) {
+      // Try to extract coordinates from text like "click at (0.5, 0.3)"
+      const coordMatch = text.match(/(\d+\.?\d*)\s*,\s*(\d+\.?\d*)/);
+      if (coordMatch) {
+        let x = parseFloat(coordMatch[1]);
+        let y = parseFloat(coordMatch[2]);
+        // If coordinates look like pixels (>1), normalize
+        if (x > 1) x = x / this.viewportWidth;
+        if (y > 1) y = y / this.viewportHeight;
+        return { thought: text, action_type: 'click', coordinate: [x, y] };
+      }
+    }
+    if (lower.includes('type') || lower.includes('enter text')) {
+      const textMatch = text.match(/["']([^"']+)["']/);
+      return { thought: text, action_type: 'type', text: textMatch?.[1] || '' };
+    }
+    if (lower.includes('scroll down')) return { thought: text, action_type: 'scroll', direction: 'down' };
+    if (lower.includes('scroll up')) return { thought: text, action_type: 'scroll', direction: 'up' };
+    if (lower.includes('done') || lower.includes('complete')) return { thought: text, action_type: 'done' };
+
+    // Can't parse — return as thought with done
+    return { thought: text, action_type: 'done' };
   }
 
   // ── Stats ───────────────────────────────────────────────────────
