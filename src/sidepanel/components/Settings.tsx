@@ -79,6 +79,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpClientServers, setMcpClientServers] = useState<{id: string; name: string; url: string; enabled: boolean}[]>([]);
   const [newMcpName, setNewMcpName] = useState('');
   const [newMcpUrl, setNewMcpUrl] = useState('');
+  const [newMcpApiKey, setNewMcpApiKey] = useState('');
   const [mcpClientTestResult, setMcpClientTestResult] = useState<string | null>(null);
 
   // Test states
@@ -626,12 +627,19 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                   placeholder="Server name (e.g. LearnForge)"
                   className="w-full bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                 />
+                <input
+                  type="text"
+                  value={newMcpUrl}
+                  onChange={(e) => setNewMcpUrl(e.target.value)}
+                  placeholder="https://example.com/api/mcp"
+                  className="w-full bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                />
                 <div className="flex gap-2">
                   <input
-                    type="text"
-                    value={newMcpUrl}
-                    onChange={(e) => setNewMcpUrl(e.target.value)}
-                    placeholder="http://localhost:3001/mcp"
+                    type="password"
+                    value={newMcpApiKey}
+                    onChange={(e) => setNewMcpApiKey(e.target.value)}
+                    placeholder="API key (optional)"
                     className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                   />
                   <button
@@ -640,12 +648,19 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                       try {
                         const res = await chrome.runtime.sendMessage({
                           type: 'MCP_CLIENT_ADD_SERVER',
-                          payload: { name: newMcpName.trim(), url: newMcpUrl.trim(), transport: 'http', enabled: true },
+                          payload: {
+                            name: newMcpName.trim(),
+                            url: newMcpUrl.trim(),
+                            transport: 'http',
+                            enabled: true,
+                            ...(newMcpApiKey.trim() ? { apiKey: newMcpApiKey.trim() } : {}),
+                          },
                         });
                         if (res?.success && res.result) {
                           setMcpClientServers([...mcpClientServers, res.result]);
                           setNewMcpName('');
                           setNewMcpUrl('');
+                          setNewMcpApiKey('');
                           setMcpClientTestResult('Server added!');
                           setTimeout(() => setMcpClientTestResult(null), 3000);
                         }
