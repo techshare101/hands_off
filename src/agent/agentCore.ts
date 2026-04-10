@@ -308,10 +308,16 @@ export class AgentCore {
         screenshot: string; 
         cursorPosition?: { x: number; y: number };
         salientElements?: Array<{ type: string; label: string; x: number; y: number }>;
+        interactiveElements?: Array<{
+          type: string; label: string; value: string; placeholder: string;
+          x: number; y: number; width: number; height: number;
+          tagName: string; inputType: string; ariaLabel: string; name: string; role: string;
+        }>;
       };
       const screenshot = screenshotData.screenshot;
       const cursorPosition = screenshotData.cursorPosition;
       const salientElements = screenshotData.salientElements || [];
+      const interactiveElements = screenshotData.interactiveElements || [];
       
       this.usageTracker.screenshotsThisTask++;
       
@@ -379,6 +385,36 @@ export class AgentCore {
           `- ${e.type.toUpperCase()}: "${e.label}" at coordinates (${e.x}, ${e.y})`
         ).join('\n');
         taskWithContext += `\n\n[DETECTED ELEMENTS - USE THESE COORDINATES]:\n${elementHints}`;
+      }
+
+      // Add DOM interactive elements as precise targeting hints
+      if (interactiveElements.length > 0) {
+        const inputFields = interactiveElements.filter(e => 
+          ['text', 'textarea', 'search', 'email', 'tel', 'url', 'number', 'password', 'combobox', 'textbox'].includes(e.type)
+        );
+        const buttons = interactiveElements.filter(e => e.type === 'button');
+        
+        let domHints = '\n\n[PAGE INTERACTIVE ELEMENTS - PRECISE COORDINATES]:';
+        
+        if (inputFields.length > 0) {
+          domHints += '\nInput Fields:';
+          for (const f of inputFields) {
+            const desc = f.label || f.placeholder || f.ariaLabel || f.name || 'unlabeled';
+            const val = f.value ? ` (current value: "${f.value}")` : ' (empty)';
+            domHints += `\n  - "${desc}"${val} → click (${f.x}, ${f.y})`;
+          }
+        }
+        
+        if (buttons.length > 0) {
+          domHints += '\nButtons:';
+          for (const b of buttons.slice(0, 10)) {
+            domHints += `\n  - "${b.label}" → click (${b.x}, ${b.y})`;
+          }
+        }
+        
+        domHints += '\n\nIMPORTANT: Use the EXACT coordinates above to click on the correct element. Match the field label/placeholder to the task requirement.';
+        taskWithContext += domHints;
+        console.log(`[AgentCore] DOM hints: ${inputFields.length} inputs, ${buttons.length} buttons`);
       }
 
       // HuggingFace Vision: detect UI elements with ML models

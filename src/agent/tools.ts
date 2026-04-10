@@ -222,18 +222,30 @@ export function createDefaultTools(tabId: number): ToolRegistry {
 
         // Get salient elements from content script (with short timeout, non-blocking)
         let salientElements: Array<{type: string, rect: {x: number, y: number, width: number, height: number}, label: string}> = [];
+        let interactiveElements: Array<{
+          type: string; label: string; value: string; placeholder: string;
+          x: number; y: number; width: number; height: number;
+          tagName: string; inputType: string; ariaLabel: string; name: string; role: string;
+        }> = [];
         
         try {
           const contentScriptReady = await ensureContentScript(tabId);
           if (contentScriptReady) {
-            const salientResponse = await sendToContentScript(tabId, { type: 'GET_SALIENT_ELEMENTS' }, 1500) as {success: boolean, elements: typeof salientElements};
+            // Fetch both salient and interactive elements in parallel
+            const [salientResponse, interactiveResponse] = await Promise.all([
+              sendToContentScript(tabId, { type: 'GET_SALIENT_ELEMENTS' }, 1500).catch(() => null) as Promise<{success: boolean, elements: typeof salientElements} | null>,
+              sendToContentScript(tabId, { type: 'GET_INTERACTIVE_ELEMENTS' }, 2000).catch(() => null) as Promise<{success: boolean, elements: typeof interactiveElements} | null>,
+            ]);
             if (salientResponse?.success && salientResponse.elements) {
               salientElements = salientResponse.elements;
             }
+            if (interactiveResponse?.success && interactiveResponse.elements) {
+              interactiveElements = interactiveResponse.elements;
+            }
           }
         } catch (e) {
-          // Non-critical - continue without salient elements
-          console.log('[Tools] Salient element detection skipped:', e);
+          // Non-critical - continue without element detection
+          console.log('[Tools] Element detection skipped:', e);
         }
 
         // Return screenshot with element metadata (no overlay burning - too slow)
@@ -247,6 +259,7 @@ export function createDefaultTools(tabId: number): ToolRegistry {
               x: Math.round(e.rect.x + e.rect.width / 2),
               y: Math.round(e.rect.y + e.rect.height / 2),
             })),
+            interactiveElements,
           } 
         };
       } catch (error) {

@@ -69,6 +69,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.type === 'GET_INTERACTIVE_ELEMENTS') {
+    const elements = findInteractiveElements();
+    sendResponse({
+      success: true,
+      elements,
+    });
+    return true;
+  }
 });
 
 // Find search bars, command inputs, and other important interactive elements
@@ -179,6 +188,114 @@ function detectGoogleSearchBar(): {type: string, rect: DOMRect, label: string} |
   }
   
   return null;
+}
+
+// Find ALL interactive elements on the page with full metadata
+// This gives the LLM precise info about every input, button, link, select, etc.
+function findInteractiveElements(): Array<{
+  type: string; label: string; value: string;
+  placeholder: string; x: number; y: number; width: number; height: number;
+  tagName: string; inputType: string; ariaLabel: string; name: string; role: string;
+}> {
+  const results: Array<{
+    type: string; label: string; value: string;
+    placeholder: string; x: number; y: number; width: number; height: number;
+    tagName: string; inputType: string; ariaLabel: string; name: string; role: string;
+  }> = [];
+  const seen = new Set<string>();
+
+  // Collect all interactive elements
+  const selectors = [
+    'input:not([type="hidden"])',
+    'textarea',
+    'select',
+    'button',
+    '[role="button"]',
+    '[role="textbox"]',
+    '[role="combobox"]',
+    '[role="searchbox"]',
+    '[role="listbox"]',
+    '[contenteditable="true"]',
+    'a[href]',
+  ];
+
+  for (const selector of selectors) {
+    try {
+      document.querySelectorAll(selector).forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        // Must be visible: reasonable size, in viewport, not hidden
+        if (rect.width < 10 || rect.height < 10) return;
+        if (rect.top > window.innerHeight || rect.bottom < 0) return;
+        if (rect.left > window.innerWidth || rect.right < 0) return;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return;
+
+        const cx = Math.round(rect.left + rect.width / 2);
+        const cy = Math.round(rect.top + rect.height / 2);
+        const key = `${cx},${cy}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        const htmlEl = el as HTMLElement;
+        const inputEl = el as HTMLInputElement;
+
+        // Determine label from multiple sources
+        let label = '';
+        // 1. aria-label
+        label = htmlEl.getAttribute('aria-label') || '';
+        // 2. Associated <label>
+        if (!label && inputEl.id) {
+          const labelEl = document.querySelector(`label[for="${inputEl.id}"]`);
+          if (labelEl) label = labelEl.textContent?.trim() || '';
+        }
+        // 3. Closest label parent
+        if (!label) {
+          const parentLabel = htmlEl.closest('label');
+          if (parentLabel) label = parentLabel.textContent?.trim() || '';
+        }
+        // 4. placeholder
+        if (!label) label = inputEl.placeholder || '';
+        // 5. title
+        if (!label) label = htmlEl.title || '';
+        // 6. innerText for buttons/links
+        if (!label) label = htmlEl.innerText?.trim().slice(0, 60) || '';
+        // 7. name attribute
+        if (!label) label = inputEl.name || '';
+
+        const tagName = el.tagName.toLowerCase();
+        let type = 'unknown';
+        if (tagName === 'input') type = inputEl.type || 'text';
+        else if (tagName === 'textarea') type = 'textarea';
+        else if (tagName === 'select') type = 'select';
+        else if (tagName === 'button' || htmlEl.getAttribute('role') === 'button') type = 'button';
+        else if (tagName === 'a') type = 'link';
+        else if (htmlEl.getAttribute('role') === 'combobox') type = 'combobox';
+        else if (htmlEl.getAttribute('role') === 'textbox') type = 'textbox';
+
+        results.push({
+          type,
+          label: label.slice(0, 80),
+          value: (inputEl.value || '').slice(0, 50),
+          placeholder: (inputEl.placeholder || '').slice(0, 80),
+          x: cx,
+          y: cy,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          tagName,
+          inputType: inputEl.type || '',
+          ariaLabel: htmlEl.getAttribute('aria-label') || '',
+          name: inputEl.name || '',
+          role: htmlEl.getAttribute('role') || '',
+        });
+      });
+    } catch (e) {}
+  }
+
+  // Sort by position: top-to-bottom, left-to-right
+  results.sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // Limit to 30 most relevant elements to keep prompt manageable
+  return results.slice(0, 30);
 }
 
 async function executeAction(action: ActionPayload): Promise<void> {
