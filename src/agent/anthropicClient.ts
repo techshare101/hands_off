@@ -50,14 +50,7 @@ export class AnthropicClient {
       this.apiKey = result.anthropicApiKey || null;
       this.model = result.anthropicModel || 'claude-sonnet-4-20250514';
 
-      if (!this.apiKey && typeof import.meta !== 'undefined') {
-        const envKey = (import.meta as any).env?.VITE_ANTHROPIC_API_KEY;
-        if (envKey && !envKey.includes('your_')) {
-          this.apiKey = envKey;
-          await chrome.storage.local.set({ anthropicApiKey: envKey });
-          console.log('[AnthropicClient] Loaded API key from environment');
-        }
-      }
+      // API keys are loaded exclusively from chrome.storage.local (user settings)
     } catch {
       console.warn('[AnthropicClient] Failed to load API key from storage');
     }

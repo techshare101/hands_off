@@ -44,16 +44,7 @@ export class GeminiClient {
       const result = await chrome.storage.local.get('geminiApiKey');
       this.apiKey = result.geminiApiKey || null;
       
-      // Fallback to env variable if no stored key (for development)
-      if (!this.apiKey && typeof import.meta !== 'undefined') {
-        const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-        if (envKey && envKey !== 'your_api_key_here') {
-          this.apiKey = envKey;
-          // Save to storage for future use
-          await chrome.storage.local.set({ geminiApiKey: envKey });
-          console.log('[GeminiClient] Loaded API key from environment');
-        }
-      }
+      // API keys are loaded exclusively from chrome.storage.local (user settings)
     } catch {
       console.warn('[GeminiClient] Failed to load API key from storage');
     }

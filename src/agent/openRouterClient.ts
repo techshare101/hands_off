@@ -41,15 +41,7 @@ export class OpenRouterClient {
       this.apiKey = result.openRouterApiKey || null;
       this.model = result.openRouterModel || 'google/gemini-2.0-flash-exp:free';
       
-      // Fallback to env variable
-      if (!this.apiKey && typeof import.meta !== 'undefined') {
-        const envKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
-        if (envKey && envKey !== 'your_api_key_here') {
-          this.apiKey = envKey;
-          await chrome.storage.local.set({ openRouterApiKey: envKey });
-          console.log('[OpenRouterClient] Loaded API key from environment');
-        }
-      }
+      // API keys are loaded exclusively from chrome.storage.local (user settings)
     } catch {
       console.warn('[OpenRouterClient] Failed to load API key from storage');
     }

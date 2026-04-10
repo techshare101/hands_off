@@ -41,15 +41,7 @@ export class RouteLLMClient {
       this.apiKey = result.routeLLMApiKey || null;
       this.model = result.routeLLMModel || 'router';
       
-      // Fallback to env variable
-      if (!this.apiKey && typeof import.meta !== 'undefined') {
-        const envKey = (import.meta as any).env?.VITE_ROUTELLM_API_KEY;
-        if (envKey && envKey !== 'your_routellm_key_here') {
-          this.apiKey = envKey;
-          await chrome.storage.local.set({ routeLLMApiKey: envKey });
-          console.log('[RouteLLMClient] Loaded API key from environment');
-        }
-      }
+      // API keys are loaded exclusively from chrome.storage.local (user settings)
     } catch {
       console.warn('[RouteLLMClient] Failed to load API key from storage');
     }
