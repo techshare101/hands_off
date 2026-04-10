@@ -117,20 +117,16 @@ class KeepAliveEngine {
   async saveCheckpoint(): Promise<void> {
     if (!this.state.activeTaskId) return;
 
-    // Get current state from agentCore via message
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'GET_AGENT_STATE' });
-      if (response && response.state) {
-        const checkpoint: AgentCheckpoint = {
-          ...response.state,
-          taskId: this.state.activeTaskId,
-          timestamp: Date.now(),
-          isRunning: true,
-        };
-        await chrome.storage.local.set({ [STORAGE_KEY]: checkpoint });
-      }
-    } catch (error) {
-      console.warn('[KeepAlive] Failed to save checkpoint:', error);
+      // Save minimal checkpoint directly to storage (no message passing needed)
+      const checkpoint: AgentCheckpoint = {
+        taskId: this.state.activeTaskId,
+        timestamp: Date.now(),
+        isRunning: true,
+      } as AgentCheckpoint;
+      await chrome.storage.local.set({ [STORAGE_KEY]: checkpoint });
+    } catch {
+      // Non-critical — checkpoint save failures are silently ignored
     }
   }
 
