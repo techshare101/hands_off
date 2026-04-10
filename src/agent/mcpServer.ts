@@ -278,8 +278,8 @@ class MCPServerEngine {
       return this.errorResponse(request.id, -32600, 'MCP Server is disabled');
     }
 
-    // Auth check
-    if (this.config.requireAuth) {
+    // Auth check (ping bypasses auth — it's a health check)
+    if (this.config.requireAuth && request.method !== 'ping') {
       const token = (request.params as Record<string, string>)?._auth;
       if (token !== this.config.authToken) {
         return this.errorResponse(request.id, -32600, 'Authentication failed');
