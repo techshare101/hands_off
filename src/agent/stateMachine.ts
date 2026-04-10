@@ -63,12 +63,15 @@ const transitions: StateTransition = {
   initializing: {
     SCREENSHOT_READY: 'seeing',
     ERROR: 'error',
+    STOP: 'idle',
+    PAUSE: 'paused',
   },
   seeing: {
     ACTION_PROPOSED: 'proposing',
     TASK_COMPLETE: 'complete',
     ERROR: 'error',
     PAUSE: 'paused',
+    STOP: 'idle',
     NEED_INPUT: 'waiting_input',
   },
   thinking: {
@@ -76,11 +79,13 @@ const transitions: StateTransition = {
     TASK_COMPLETE: 'complete',
     ERROR: 'error',
     PAUSE: 'paused',
+    STOP: 'idle',
   },
   proposing: {
     ACTION_APPROVED: 'executing',
     ACTION_REJECTED: 'seeing',
     ACTION_OVERRIDE: 'executing',
+    ERROR: 'error',
     PAUSE: 'paused',
     STOP: 'idle',
   },
@@ -88,6 +93,7 @@ const transitions: StateTransition = {
     ACTION_EXECUTED: 'verifying',
     ERROR: 'error',
     PAUSE: 'paused',
+    STOP: 'idle',
   },
   verifying: {
     VERIFICATION_SUCCESS: 'seeing',
@@ -103,6 +109,8 @@ const transitions: StateTransition = {
   waiting_input: {
     ACTION_APPROVED: 'seeing',
     STOP: 'idle',
+    PAUSE: 'paused',
+    ERROR: 'error',
   },
   complete: {
     START: 'initializing',

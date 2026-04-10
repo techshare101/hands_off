@@ -129,19 +129,31 @@ export class AgentCore {
     await autoSkill.init();
     await hybridBrain.init();
     await metaAgent.init();
-    // TODO: Debug mcpClient/a2aProtocol init issues
-    // await mcpClient.init();
-    // await a2aProtocol.init();
+    // Initialize MCP client and A2A protocol (both have try/catch internally)
+    try {
+      await mcpClient.init();
+    } catch (e) {
+      console.warn('[AgentCore] MCP client init failed (non-critical):', e);
+    }
+    try {
+      await a2aProtocol.init();
+    } catch (e) {
+      console.warn('[AgentCore] A2A protocol init failed (non-critical):', e);
+    }
 
     // Discover MCP tools so the decision router knows what's available
-    // const mcpToolCount = (await mcpClient.discoverTools()).length;
-    // if (mcpToolCount > 0) {
-    //   this.emitStep('learning', `MCP: ${mcpToolCount} external tool(s) available`);
-    // }
-    // const a2aAgentCount = a2aProtocol.getRemoteAgents().length;
-    // if (a2aAgentCount > 0) {
-    //   this.emitStep('learning', `A2A: ${a2aAgentCount} remote agent(s) connected`);
-    // }
+    try {
+      const mcpToolCount = (await mcpClient.discoverTools()).length;
+      if (mcpToolCount > 0) {
+        this.emitStep('learning', `MCP: ${mcpToolCount} external tool(s) available`);
+      }
+    } catch (e) {
+      console.warn('[AgentCore] MCP tool discovery failed:', e);
+    }
+    const a2aAgentCount = a2aProtocol.getRemoteAgents().length;
+    if (a2aAgentCount > 0) {
+      this.emitStep('learning', `A2A: ${a2aAgentCount} remote agent(s) connected`);
+    }
 
     // Check if Hugging Face Vision is enabled
     const hfClient = getHFClient();
@@ -251,14 +263,14 @@ export class AgentCore {
       
       let screenshotResult: { success: boolean; data?: unknown; error?: string } = { success: false, error: 'Not attempted' };
       let screenshotRetries = 0;
-      const maxScreenshotRetries = 3;
+      const maxScreenshotRetries = 5;
       
       while (!screenshotResult.success && screenshotRetries < maxScreenshotRetries) {
         screenshotRetries++;
         
         const screenshotPromise = this.tools.execute('seeScreen', {});
         const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) => 
-          setTimeout(() => resolve({ success: false, error: 'Screenshot timeout' }), 8000)
+          setTimeout(() => resolve({ success: false, error: 'Screenshot timeout' }), 15000)
         );
         
         screenshotResult = await Promise.race([screenshotPromise, timeoutPromise]);
@@ -338,9 +350,12 @@ export class AgentCore {
       if (siteAdditions) taskWithContext += siteAdditions;
 
       // Inject routing capabilities (MCP tools, A2A agents, active widgets)
-      // TODO: Re-enable after debugging
-      // const routingAddition = decisionRouter.buildRoutingPromptAddition();
-      // if (routingAddition) taskWithContext += routingAddition;
+      try {
+        const routingAddition = decisionRouter.buildRoutingPromptAddition();
+        if (routingAddition) taskWithContext += routingAddition;
+      } catch (e) {
+        console.warn('[AgentCore] Routing prompt addition failed:', e);
+      }
 
       // Add detected salient elements as hints
       if (salientElements.length > 0) {
@@ -432,17 +447,21 @@ export class AgentCore {
       const response = analysis.response;
 
       // Step 4: Decision Router — decide HOW to fulfill this step
-      // TODO: Re-enable routing after debugging base agent
-      // const routeDecision = await decisionRouter.decideRoute({
-      //   task: this.config.task,
-      //   pageUrl,
-      //   pageTitle,
-      //   llmResponse: response,
-      //   iteration,
-      //   actionHistory: this.actionHistory,
-      //   mcpToolsAvailable: [],
-      //   hasActiveWidgets: false,
-      // });
+      try {
+        const routeDecision = await decisionRouter.decideRoute({
+          task: this.config.task,
+          pageUrl,
+          pageTitle,
+          llmResponse: response,
+          iteration,
+          actionHistory: this.actionHistory,
+          mcpToolsAvailable: mcpClient.getAllCachedTools() || [],
+          hasActiveWidgets: false,
+        });
+        console.log('[AgentCore] Route decision:', routeDecision.route);
+      } catch (e) {
+        console.warn('[AgentCore] Decision routing failed, using default browser action:', e);
+      }
 
       // Step 4: Check if complete
       if (response.isComplete) {
