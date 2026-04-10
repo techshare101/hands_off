@@ -153,12 +153,59 @@ Analyze the screenshot and determine the next action. Respond with valid JSON on
         console.error('[GeminiClient] API error:', response.status, errorText);
         
         if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded. Please wait a moment.' };
+          // Retry with exponential backoff for rate limits
+          const retryAfter = response.headers.get('Retry-After');
+          const baseDelay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          
+          for (let retry = 0; retry < 3; retry++) {
+            const delay = baseDelay * Math.pow(2, retry);
+            console.log(`[GeminiClient] Rate limited, retrying in ${delay}ms (attempt ${retry + 1}/3)`);
+            await this.sleep(delay);
+            
+            try {
+              const retryController = new AbortController();
+              const retryTimeoutId = setTimeout(() => retryController.abort(), this.requestTimeout);
+              const retryResp = await fetch(`${GEMINI_API_ENDPOINT}?key=${this.apiKey}`, {
+                signal: retryController.signal,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [
+                    { text: `${getPromptForTask(request.taskType || 'general')}\n\n${request.task}` },
+                    { inlineData: { mimeType: 'image/png', data: request.screenshot.replace(/^data:image\/\w+;base64,/, '') } },
+                  ]}],
+                  generationConfig: { temperature: 0.1, topK: 32, topP: 1, maxOutputTokens: 2048 },
+                  safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                  ],
+                }),
+              });
+              clearTimeout(retryTimeoutId);
+              if (retryResp.ok) {
+                const retryData = await retryResp.json();
+                const retryText = retryData.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (retryText) {
+                  const parsed = this.parseResponse(retryText);
+                  if (parsed) {
+                    const validated = validateGeminiResponse(parsed);
+                    if (validated) {
+                      return { success: true, response: validated, rawText: retryText, latencyMs: Date.now() - startTime };
+                    }
+                  }
+                }
+              }
+              if (retryResp.status !== 429) break;
+            } catch { /* retry failed, continue */ }
+          }
+          return { success: false, error: 'Rate limit exceeded after retries. Please wait a minute and try again.' };
         }
         if (response.status === 401 || response.status === 403) {
           return { success: false, error: 'Invalid API key. Please check your settings.' };
         }
-        return { success: false, error: `API error: ${response.status}` };
+        return { success: false, error: `API error: ${response.status} — ${errorText.slice(0, 200)}` };
       }
 
       const data = await response.json();
