@@ -89,8 +89,9 @@ export class GeminiClient {
     }
 
     try {
-      // Prepare image data
+      // Prepare image data - strip data URL prefix
       const imageData = request.screenshot.replace(/^data:image\/\w+;base64,/, '');
+      const mimeType = request.screenshot.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
       
       // Build context
       const systemPrompt = getPromptForTask(request.taskType || 'general');
@@ -122,7 +123,7 @@ Analyze the screenshot and determine the next action. Respond with valid JSON on
                 { text: `${systemPrompt}\n\n${userPrompt}` },
                 {
                   inlineData: {
-                    mimeType: 'image/png',
+                    mimeType,
                     data: imageData,
                   },
                 },

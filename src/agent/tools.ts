@@ -216,8 +216,8 @@ export function createDefaultTools(tabId: number): ToolRegistry {
       try {
         // Capture raw screenshot first - this is the critical path
         const dataUrl = await chrome.tabs.captureVisibleTab({
-          format: 'png',
-          quality: 90,
+          format: 'jpeg',
+          quality: 70,
         });
 
         // Get salient elements from content script (with short timeout, non-blocking)

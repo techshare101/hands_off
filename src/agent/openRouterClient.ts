@@ -92,7 +92,13 @@ export class OpenRouterClient {
       const systemPrompt = getPromptForTask(request.taskType || 'general');
       const userMessage = this.buildUserMessage(request);
 
-      console.log('[OpenRouterClient] Sending request to model:', this.model);
+      // Ensure screenshot has proper data URL prefix
+      let screenshotUrl = request.screenshot;
+      if (!screenshotUrl.startsWith('data:')) {
+        screenshotUrl = `data:image/jpeg;base64,${screenshotUrl}`;
+      }
+      const screenshotSizeKB = Math.round(screenshotUrl.length / 1024);
+      console.log(`[OpenRouterClient] Sending request to model: ${this.model} (screenshot: ${screenshotSizeKB}KB)`);
       
       // Create abort controller for timeout
       this.abortController = new AbortController();
@@ -117,7 +123,7 @@ export class OpenRouterClient {
                 { type: 'text', text: userMessage },
                 {
                   type: 'image_url',
-                  image_url: { url: request.screenshot }
+                  image_url: { url: screenshotUrl }
                 }
               ]
             }
