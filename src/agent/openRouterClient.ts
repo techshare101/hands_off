@@ -100,40 +100,81 @@ export class OpenRouterClient {
       const screenshotSizeKB = Math.round(screenshotUrl.length / 1024);
       console.log(`[OpenRouterClient] Sending request to model: ${this.model} (screenshot: ${screenshotSizeKB}KB)`);
       
-      // Create abort controller for timeout
-      this.abortController = new AbortController();
-      const timeoutId = setTimeout(() => this.abortController?.abort(), this.requestTimeout);
-      
-      const response = await fetch(OPENROUTER_API_ENDPOINT, {
-        signal: this.abortController.signal,
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://handoff-extension.local',
-          'X-Title': 'HandOff Browser Agent',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: userMessage },
-                {
-                  type: 'image_url',
-                  image_url: { url: screenshotUrl }
-                }
-              ]
-            }
-          ],
-          max_tokens: 2048,
-          temperature: 0.1,
-        }),
+      // Build request body
+      const requestBody = JSON.stringify({
+        model: this.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userMessage },
+              {
+                type: 'image_url',
+                image_url: { url: screenshotUrl }
+              }
+            ]
+          }
+        ],
+        max_tokens: 2048,
+        temperature: 0.1,
       });
       
+      console.log(`[OpenRouterClient] Request body size: ${Math.round(requestBody.length / 1024)}KB`);
+      
+      // Create abort controller for timeout (60s for large payloads)
+      this.abortController = new AbortController();
+      const timeoutId = setTimeout(() => this.abortController?.abort(), 60000);
+      
+      let response: Response | undefined;
+      try {
+        response = await fetch(OPENROUTER_API_ENDPOINT, {
+          signal: this.abortController.signal,
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: requestBody,
+        });
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        console.error('[OpenRouterClient] fetch() threw:', fetchErr, 'Type:', typeof fetchErr, 'Name:', (fetchErr as Error)?.name);
+        // Retry once without image
+        console.log('[OpenRouterClient] Retrying without image...');
+        try {
+          const retryBody = JSON.stringify({
+            model: this.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userMessage + '\n\n[Note: Screenshot could not be sent. Describe what to do based on the task alone.]' }
+            ],
+            max_tokens: 2048,
+            temperature: 0.1,
+          });
+          response = await fetch(OPENROUTER_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: retryBody,
+          });
+          console.log('[OpenRouterClient] Text-only retry succeeded, status:', response.status);
+        } catch (retryErr) {
+          console.error('[OpenRouterClient] Text-only retry also failed:', retryErr);
+          return {
+            success: false,
+            error: `Cannot reach OpenRouter API: ${(retryErr as Error)?.message || retryErr}. Check your internet connection.`,
+            latencyMs: Date.now() - startTime,
+          };
+        }
+      }
+      
       clearTimeout(timeoutId);
+      if (!response) {
+        return { success: false, error: 'No response received from OpenRouter', latencyMs: Date.now() - startTime };
+      }
       console.log('[OpenRouterClient] Response status:', response.status);
 
       this.lastRequestTime = Date.now();
