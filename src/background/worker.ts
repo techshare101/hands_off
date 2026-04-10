@@ -94,20 +94,9 @@ async function handleMessage(
 
   switch (message.type) {
     case 'START_TASK': {
-      const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      currentTaskId = taskId;
-      // Start keep-alive checkpoint for this task
-      keepAlive.startTask(taskId, {
-        task: (message.payload as { task: string }).task,
-        tabId: currentTabId || 0,
-        iteration: 0,
-        actionHistory: [],
-        correctionContext: null,
-        retryCount: 0,
-        consecutiveScrolls: 0,
-        lastActionSignature: null,
-        autonomyLevel: 'balanced',
-      }).catch(console.error);
+      // const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      // currentTaskId = taskId;
+      // keepAlive.startTask(taskId, {...}).catch(console.error);
       return await startTask(message.payload as { task: string; taskType?: string });
     }
 
@@ -820,10 +809,17 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
   };
 
   // Create and start agent with the selected LLM client
-  currentAgent = new AgentCore(config, llmClient as GeminiClient);
-  currentAgent.start();
-
-  return { success: true };
+  try {
+    currentAgent = new AgentCore(config, llmClient as GeminiClient);
+    await currentAgent.start();
+    return { success: true };
+  } catch (error) {
+    console.error('[Worker] Failed to start agent:', error);
+    notifySidePanel('AGENT_ERROR', { 
+      error: error instanceof Error ? error.message : 'Failed to start agent' 
+    });
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 }
 
 function notifySidePanel(type: string, payload: unknown): void {

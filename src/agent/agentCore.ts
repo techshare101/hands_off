@@ -129,18 +129,19 @@ export class AgentCore {
     await autoSkill.init();
     await hybridBrain.init();
     await metaAgent.init();
-    await mcpClient.init();
-    await a2aProtocol.init();
+    // TODO: Debug mcpClient/a2aProtocol init issues
+    // await mcpClient.init();
+    // await a2aProtocol.init();
 
     // Discover MCP tools so the decision router knows what's available
-    const mcpToolCount = (await mcpClient.discoverTools()).length;
-    if (mcpToolCount > 0) {
-      this.emitStep('learning', `MCP: ${mcpToolCount} external tool(s) available`);
-    }
-    const a2aAgentCount = a2aProtocol.getRemoteAgents().length;
-    if (a2aAgentCount > 0) {
-      this.emitStep('learning', `A2A: ${a2aAgentCount} remote agent(s) connected`);
-    }
+    // const mcpToolCount = (await mcpClient.discoverTools()).length;
+    // if (mcpToolCount > 0) {
+    //   this.emitStep('learning', `MCP: ${mcpToolCount} external tool(s) available`);
+    // }
+    // const a2aAgentCount = a2aProtocol.getRemoteAgents().length;
+    // if (a2aAgentCount > 0) {
+    //   this.emitStep('learning', `A2A: ${a2aAgentCount} remote agent(s) connected`);
+    // }
 
     // Check if Hugging Face Vision is enabled
     const hfClient = getHFClient();
@@ -337,8 +338,9 @@ export class AgentCore {
       if (siteAdditions) taskWithContext += siteAdditions;
 
       // Inject routing capabilities (MCP tools, A2A agents, active widgets)
-      const routingAddition = decisionRouter.buildRoutingPromptAddition();
-      if (routingAddition) taskWithContext += routingAddition;
+      // TODO: Re-enable after debugging
+      // const routingAddition = decisionRouter.buildRoutingPromptAddition();
+      // if (routingAddition) taskWithContext += routingAddition;
 
       // Add detected salient elements as hints
       if (salientElements.length > 0) {
@@ -430,80 +432,19 @@ export class AgentCore {
       const response = analysis.response;
 
       // Step 4: Decision Router — decide HOW to fulfill this step
-      const routeDecision = await decisionRouter.decideRoute({
-        task: this.config.task,
-        pageUrl,
-        pageTitle,
-        llmResponse: response,
-        iteration,
-        actionHistory: this.actionHistory,
-        mcpToolsAvailable: mcpClient.getAllCachedTools(),
-        hasActiveWidgets: a2ui.getActiveWidgets().length > 0,
-      });
+      // TODO: Re-enable routing after debugging base agent
+      // const routeDecision = await decisionRouter.decideRoute({
+      //   task: this.config.task,
+      //   pageUrl,
+      //   pageTitle,
+      //   llmResponse: response,
+      //   iteration,
+      //   actionHistory: this.actionHistory,
+      //   mcpToolsAvailable: [],
+      //   hasActiveWidgets: false,
+      // });
 
-      // Handle non-browser routes
-      if (routeDecision.route === 'a2ui_widget') {
-        this.emitStep('thinking', `Rendering interactive widget: ${routeDecision.widget.title || 'widget'}`);
-        a2ui.renderWidget(routeDecision.widget);
-        // Broadcast to sidepanel
-        try {
-          await chrome.runtime.sendMessage({ type: 'A2UI_RENDER_WIDGET', payload: routeDecision.widget });
-        } catch { /* sidepanel may not be open */ }
-        decisionRouter.markRouteSuccess(true);
-        // Wait for user interaction before continuing
-        this.emitStep('waiting', 'Waiting for user input on widget...');
-        await this.sleep(2000);
-        continue;
-      }
-
-      if (routeDecision.route === 'mcp_tool') {
-        this.emitStep('thinking', `Calling MCP tool: ${routeDecision.toolName}`);
-        try {
-          const mcpResult = await mcpClient.callTool(routeDecision.serverId, routeDecision.toolName, routeDecision.args);
-          decisionRouter.markRouteSuccess(true);
-          this.emitStep('verifying', `MCP tool result received from ${routeDecision.toolName}`);
-          // Feed result back as context for next iteration
-          this.correctionContext = `[MCP TOOL RESULT from ${routeDecision.toolName}]: ${JSON.stringify(mcpResult).slice(0, 500)}`;
-        } catch (mcpError) {
-          decisionRouter.markRouteSuccess(false);
-          this.emitStep('error', `MCP tool failed: ${mcpError instanceof Error ? mcpError.message : 'Unknown error'}`);
-        }
-        continue;
-      }
-
-      if (routeDecision.route === 'a2a_delegate') {
-        this.emitStep('thinking', `Delegating to agent: ${routeDecision.agentId}`);
-        try {
-          const a2aTask = await a2aProtocol.sendTask(
-            routeDecision.agentId,
-            routeDecision.intent,
-            routeDecision.description,
-            routeDecision.input,
-          );
-          decisionRouter.markRouteSuccess(a2aTask.status !== 'failed');
-          if (a2aTask.status === 'failed') {
-            this.emitStep('error', `A2A delegation failed: ${a2aTask.error}`);
-          } else {
-            this.emitStep('verifying', `Task delegated: ${a2aTask.taskId} [${a2aTask.status}]`);
-            if (a2aTask.result) {
-              this.correctionContext = `[A2A RESULT from ${routeDecision.agentId}]: ${JSON.stringify(a2aTask.result).slice(0, 500)}`;
-            }
-          }
-        } catch (a2aError) {
-          decisionRouter.markRouteSuccess(false);
-          this.emitStep('error', `A2A delegation error: ${a2aError instanceof Error ? a2aError.message : 'Unknown'}`);
-        }
-        continue;
-      }
-
-      if (routeDecision.route === 'wait_for_user') {
-        this.stateMachine.send({ type: 'NEED_INPUT', question: routeDecision.question });
-        this.emitStep('waiting', routeDecision.question);
-        await this.sleep(2000);
-        continue;
-      }
-
-      // Step 4b: Check if complete
+      // Step 4: Check if complete
       if (response.isComplete) {
         // Complete execution trace as successful
         const trace = await executionMemory.completeTrace(true);

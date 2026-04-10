@@ -46,13 +46,24 @@ class KeepAliveEngine {
   async init(): Promise<void> {
     if (this.isInitialized) return;
 
-    // Create the heartbeat alarm
-    await chrome.alarms.create(this.heartbeatAlarmName, {
-      periodInMinutes: HEARTBEAT_INTERVAL_MINUTES,
-    });
+    // Check if alarms API is available (it should be in service worker)
+    if (typeof chrome === 'undefined' || !chrome.alarms) {
+      console.warn('[KeepAlive] chrome.alarms API not available, skipping keep-alive');
+      this.isInitialized = true;
+      return;
+    }
 
-    // Listen for alarm
-    chrome.alarms.onAlarm.addListener(this.onAlarm.bind(this));
+    try {
+      // Create the heartbeat alarm
+      await chrome.alarms.create(this.heartbeatAlarmName, {
+        periodInMinutes: HEARTBEAT_INTERVAL_MINUTES,
+      });
+
+      // Listen for alarm
+      chrome.alarms.onAlarm.addListener(this.onAlarm.bind(this));
+    } catch (error) {
+      console.warn('[KeepAlive] Failed to create alarm:', error);
+    }
 
     // Listen for SW lifecycle events
     self.addEventListener('beforeunload', this.onBeforeUnload.bind(this));
@@ -61,7 +72,7 @@ class KeepAliveEngine {
     await this.checkForCheckpoint();
 
     this.isInitialized = true;
-    console.log('[KeepAlive] Initialized with 30s heartbeat');
+    console.log('[KeepAlive] Initialized');
   }
 
   // ── Heartbeat Handler ──────────────────────────────────────────────
