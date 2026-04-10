@@ -75,6 +75,12 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpOrigins, setMcpOrigins] = useState<string[]>([]);
   const [newOrigin, setNewOrigin] = useState('');
 
+  // MCP Client state (connect TO external MCP servers)
+  const [mcpClientServers, setMcpClientServers] = useState<{id: string; name: string; url: string; enabled: boolean}[]>([]);
+  const [newMcpName, setNewMcpName] = useState('');
+  const [newMcpUrl, setNewMcpUrl] = useState('');
+  const [mcpClientTestResult, setMcpClientTestResult] = useState<string | null>(null);
+
   // Test states
   const [apiTestResult, setApiTestResult] = useState<string | null>(null);
   const [fileTestResult, setFileTestResult] = useState<string | null>(null);
@@ -82,7 +88,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
@@ -104,6 +110,9 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
         setMcpAuthRequired(mcpCfg.requireAuth ?? false);
         setMcpAuthToken(mcpCfg.authToken ?? '');
         setMcpOrigins(mcpCfg.allowedOrigins ?? []);
+      }
+      if (result.handoff_mcp_client_config) {
+        setMcpClientServers(result.handoff_mcp_client_config || []);
       }
       const loadedKeys: Record<string, string> = {};
       const loadedModels: Record<string, string> = {};
@@ -548,6 +557,121 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                 </button>
               </div>
             )}
+          </div>
+
+          {/* ── MCP Client (Connect to external servers) ───── */}
+          <div className="border-t border-handoff-dark pt-4">
+            <label className="text-sm font-medium text-white flex items-center gap-2 mb-2">
+              <Globe className="w-4 h-4 text-cyan-400" />
+              MCP Client
+            </label>
+            <p className="text-xs text-handoff-muted mb-3">
+              Connect to external MCP servers (LearnForge, custom tools). The agent can discover and use their tools.
+            </p>
+            <div className="space-y-3">
+              {mcpClientServers.map((srv) => (
+                <div key={srv.id} className="flex items-center gap-2 bg-handoff-dark rounded-xl p-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-white font-medium truncate">{srv.name}</div>
+                    <div className="text-[10px] text-handoff-muted truncate">{srv.url}</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setMcpClientTestResult(`Pinging ${srv.name}...`);
+                      try {
+                        const res = await chrome.runtime.sendMessage({ type: 'MCP_CLIENT_PING', payload: { serverId: srv.id } });
+                        if (res?.success && res.result) {
+                          setMcpClientTestResult(`${srv.name}: connected!`);
+                        } else {
+                          setMcpClientTestResult(`${srv.name}: failed`);
+                        }
+                      } catch (e: any) {
+                        setMcpClientTestResult(`Error: ${e.message}`);
+                      }
+                      setTimeout(() => setMcpClientTestResult(null), 4000);
+                    }}
+                    className="px-2 py-1 rounded-lg text-[10px] bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
+                  >Ping</button>
+                  <button
+                    onClick={async () => {
+                      setMcpClientTestResult(`Discovering tools on ${srv.name}...`);
+                      try {
+                        const res = await chrome.runtime.sendMessage({ type: 'MCP_CLIENT_DISCOVER_TOOLS', payload: { serverId: srv.id } });
+                        if (res?.success && res.result) {
+                          setMcpClientTestResult(`${srv.name}: ${res.result.length} tool(s) found`);
+                        } else {
+                          setMcpClientTestResult(`${srv.name}: no tools`);
+                        }
+                      } catch (e: any) {
+                        setMcpClientTestResult(`Error: ${e.message}`);
+                      }
+                      setTimeout(() => setMcpClientTestResult(null), 5000);
+                    }}
+                    className="px-2 py-1 rounded-lg text-[10px] bg-violet-500/20 text-violet-400 hover:bg-violet-500/30"
+                  >Tools</button>
+                  <button
+                    onClick={async () => {
+                      await chrome.runtime.sendMessage({ type: 'MCP_CLIENT_REMOVE_SERVER', payload: { serverId: srv.id } });
+                      setMcpClientServers(mcpClientServers.filter(s => s.id !== srv.id));
+                    }}
+                    className="text-handoff-muted hover:text-red-400"
+                  ><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newMcpName}
+                  onChange={(e) => setNewMcpName(e.target.value)}
+                  placeholder="Server name (e.g. LearnForge)"
+                  className="w-full bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMcpUrl}
+                    onChange={(e) => setNewMcpUrl(e.target.value)}
+                    placeholder="http://localhost:3001/mcp"
+                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!newMcpName.trim() || !newMcpUrl.trim()) return;
+                      try {
+                        const res = await chrome.runtime.sendMessage({
+                          type: 'MCP_CLIENT_ADD_SERVER',
+                          payload: { name: newMcpName.trim(), url: newMcpUrl.trim(), transport: 'http', enabled: true },
+                        });
+                        if (res?.success && res.result) {
+                          setMcpClientServers([...mcpClientServers, res.result]);
+                          setNewMcpName('');
+                          setNewMcpUrl('');
+                          setMcpClientTestResult('Server added!');
+                          setTimeout(() => setMcpClientTestResult(null), 3000);
+                        }
+                      } catch (e: any) {
+                        setMcpClientTestResult(`Error: ${e.message}`);
+                        setTimeout(() => setMcpClientTestResult(null), 4000);
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              {mcpClientTestResult && (
+                <div className={`text-xs py-1.5 px-3 rounded-lg text-center ${
+                  mcpClientTestResult.includes('connected') || mcpClientTestResult.includes('found') || mcpClientTestResult.includes('added')
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : mcpClientTestResult.includes('Error') || mcpClientTestResult.includes('failed')
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-cyan-500/20 text-cyan-400 animate-pulse'
+                }`}>
+                  {mcpClientTestResult}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ── MCP Server ────────────────────────────────── */}
