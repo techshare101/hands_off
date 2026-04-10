@@ -80,6 +80,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // Handle messages from side panel and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[Worker] RAW message received:', message?.type, message);
   handleMessage(message, sender)
     .then(sendResponse)
     .catch((error) => sendResponse({ success: false, error: error.message }));
@@ -94,9 +95,19 @@ async function handleMessage(
 
   switch (message.type) {
     case 'START_TASK': {
-      // const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      // currentTaskId = taskId;
-      // keepAlive.startTask(taskId, {...}).catch(console.error);
+      const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      currentTaskId = taskId;
+      keepAlive.startTask(taskId, {
+        task: (message.payload as { task: string }).task,
+        tabId: currentTabId || 0,
+        iteration: 0,
+        actionHistory: [],
+        correctionContext: null,
+        retryCount: 0,
+        consecutiveScrolls: 0,
+        lastActionSignature: null,
+        autonomyLevel: 'balanced',
+      }).catch(console.error);
       return await startTask(message.payload as { task: string; taskType?: string });
     }
 
@@ -664,6 +675,12 @@ async function handleMessage(
       return { success: true, result: inResult };
     }
 
+    case 'KEEPALIVE_PING':
+      return { pong: true, timestamp: Date.now() };
+
+    case 'RESUME_FROM_CHECKPOINT':
+      return { success: true, message: 'Checkpoint acknowledged' };
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -671,50 +688,16 @@ async function handleMessage(
 
 // ── MCP External Message Listener ────────────────────────────────
 // Listen for messages from other extensions (MCP clients)
-// ── Keep-Alive Message Handlers ────────────────────────────────
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'KEEPALIVE_PING') {
-    sendResponse({ pong: true, timestamp: Date.now() });
-    return false;
-  }
-  if (message.type === 'GET_AGENT_STATE') {
-    if (currentAgent) {
-      sendResponse({
-        state: {
-          task: currentAgent['config']?.task,
-          tabId: currentTabId,
-          iteration: currentAgent['actionHistory']?.length || 0,
-          actionHistory: currentAgent['actionHistory'] || [],
-          correctionContext: currentAgent['correctionContext'] || null,
-          retryCount: currentAgent['retryCount'] || 0,
-          consecutiveScrolls: currentAgent['consecutiveScrolls'] || 0,
-          lastActionSignature: currentAgent['recentActionSignatures']?.[currentAgent['recentActionSignatures'].length - 1] || null,
-          autonomyLevel: currentAgent['autonomyLevel'] || 'balanced',
-        },
-      });
-    } else {
-      sendResponse({ state: null });
-    }
-    return false;
-  }
-  if (message.type === 'RESUME_FROM_CHECKPOINT') {
-    const checkpoint = message.payload as import('./keepAlive').AgentCheckpoint;
-    sendResponse({ success: true, message: 'Checkpoint acknowledged' });
-    return false;
-  }
-});
-
-// Initialize keep-alive on startup
-keepAlive.init().then(() => {
-  console.log('[Worker] Keep-alive initialized');
-  // Check for checkpoint to resume
-  keepAlive.loadCheckpoint().then((checkpoint) => {
-    if (checkpoint) {
-      console.log('[Worker] Found checkpoint for task:', checkpoint.taskId);
-    }
+// Initialize keep-alive safely on startup
+try {
+  keepAlive.init().then(() => {
+    console.log('[Worker] Keep-alive initialized');
+  }).catch((err: unknown) => {
+    console.warn('[Worker] Keep-alive init failed (non-critical):', err);
   });
-});
+} catch (e) {
+  console.warn('[Worker] Keep-alive init error:', e);
+}
 
 chrome.runtime.onMessageExternal?.addListener(
   (request, sender, sendResponse) => {
@@ -724,10 +707,14 @@ chrome.runtime.onMessageExternal?.addListener(
 );
 
 async function startTask(payload: { task: string; taskType?: string }): Promise<{ success: boolean; error?: string }> {
+  console.log('[Worker] startTask called with:', payload.task);
+  
   // ALWAYS get the current active tab - don't use stale tabId
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  console.log('[Worker] Active tab:', activeTab?.id, activeTab?.url);
   
   // Find a valid tab to work with
+  console.log('[Worker] Finding valid tab...');
   let targetTab = activeTab;
   
   // If active tab is a chrome:// or extension page, find the last regular tab
@@ -747,12 +734,14 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
   }
   
   currentTabId = targetTab?.id ?? null;
-  console.log('[Worker] Starting task on tab:', currentTabId, targetTab?.url);
+  console.log('[Worker] Target tab selected:', currentTabId, targetTab?.url);
 
   if (!currentTabId) {
+    console.error('[Worker] No valid tab found');
     notifySidePanel('AGENT_ERROR', { error: 'No valid tab found. Please open a website first.' });
     return { success: false, error: 'No valid tab found' };
   }
+  console.log('[Worker] Tab validated:', currentTabId);
   
   // Verify the tab URL is not restricted
   const tabUrl = targetTab?.url || '';
@@ -762,10 +751,14 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
   }
 
   // Get active LLM client based on settings
+  console.log('[Worker] Getting LLM client...');
   const llmClient = await getActiveLLMClient();
+  console.log('[Worker] LLM client obtained');
 
   // Check API key
+  console.log('[Worker] Checking API key...');
   const hasKey = await llmClient.hasApiKey();
+  console.log('[Worker] API key present:', hasKey);
   if (!hasKey) {
     notifySidePanel('AGENT_ERROR', { error: 'API key not configured. Please open settings.' });
     return { success: false, error: 'API key not configured' };
@@ -809,17 +802,20 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
   };
 
   // Create and start agent with the selected LLM client
-  try {
-    currentAgent = new AgentCore(config, llmClient as GeminiClient);
-    await currentAgent.start();
-    return { success: true };
-  } catch (error) {
-    console.error('[Worker] Failed to start agent:', error);
+  console.log('[Worker] Creating AgentCore...');
+  currentAgent = new AgentCore(config, llmClient as GeminiClient);
+  console.log('[Worker] AgentCore created, starting (fire-and-forget)...');
+  
+  // Fire-and-forget — don't await, or the message handler blocks forever
+  currentAgent.start().catch((error) => {
+    console.error('[Worker] Agent start failed:', error);
     notifySidePanel('AGENT_ERROR', { 
       error: error instanceof Error ? error.message : 'Failed to start agent' 
     });
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+    currentAgent = null;
+  });
+
+  return { success: true };
 }
 
 function notifySidePanel(type: string, payload: unknown): void {

@@ -11,8 +11,9 @@ export function useAgentMessages() {
         case 'AGENT_STEP':
           addStep(message.payload as { type: 'seeing' | 'thinking' | 'clicking' | 'typing' | 'verifying' | 'error' | 'paused' | 'learning'; description: string; screenshot?: string });
           break;
+        case 'AGENT_STATE':
         case 'AGENT_STATUS':
-          setStatus((message.payload as { status: 'idle' | 'seeing' | 'thinking' | 'acting' | 'verifying' | 'paused' | 'error' | 'complete' }).status);
+          setStatus((message.payload as { status?: string; state?: string }).status as any || (message.payload as { state?: string }).state as any || 'idle');
           break;
         case 'AGENT_COMPLETE':
           setStatus('complete');

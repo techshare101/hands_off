@@ -81,6 +81,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   activeWidgets: [],
 
   startTask: (task: string) => {
+    console.log('[AgentStore] startTask called:', task);
     set({
       status: 'seeing',
       currentTask: task,
@@ -89,9 +90,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     });
     
     // Notify background worker to start the agent
+    console.log('[AgentStore] Sending START_TASK message...');
     chrome.runtime.sendMessage({
       type: 'START_TASK',
       payload: { task },
+    }).then((response) => {
+      console.log('[AgentStore] START_TASK response:', response);
+    }).catch((err) => {
+      console.error('[AgentStore] START_TASK failed:', err);
+      set({ status: 'error', error: 'Failed to start: ' + err.message });
     });
   },
 
