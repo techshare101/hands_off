@@ -91,6 +91,7 @@ export class AgentCore {
   }
 
   async start(): Promise<void> {
+    console.log('[AgentCore] start() called');
     if (this.isRunning) {
       console.warn('[AgentCore] Already running, stopping first...');
       this.stop();
@@ -105,6 +106,7 @@ export class AgentCore {
     }
 
     // Reset all state for new task
+    console.log('[AgentCore] Usage check passed, initializing...');
     this.isRunning = true;
     this.shouldStop = false;
     this.actionHistory = [];
@@ -125,10 +127,11 @@ export class AgentCore {
     this.stateMachine.send({ type: 'START', task: this.config.task });
 
     // Initialize self-learning subsystems
-    await executionMemory.init();
-    await autoSkill.init();
-    await hybridBrain.init();
-    await metaAgent.init();
+    console.log('[AgentCore] Initializing subsystems...');
+    try { await executionMemory.init(); } catch (e) { console.warn('[AgentCore] executionMemory.init failed:', e); }
+    try { await autoSkill.init(); } catch (e) { console.warn('[AgentCore] autoSkill.init failed:', e); }
+    try { await hybridBrain.init(); } catch (e) { console.warn('[AgentCore] hybridBrain.init failed:', e); }
+    try { await metaAgent.init(); } catch (e) { console.warn('[AgentCore] metaAgent.init failed:', e); }
     // Initialize MCP client and A2A protocol (both have try/catch internally)
     try {
       await mcpClient.init();
@@ -156,15 +159,16 @@ export class AgentCore {
     }
 
     // Check if Hugging Face Vision is enabled
+    console.log('[AgentCore] Checking vision engines...');
     const hfClient = getHFClient();
-    await hfClient.init();
-    this.useHF = await hfClient.isEnabled();
+    try { await hfClient.init(); } catch (e) { console.warn('[AgentCore] hfClient.init failed:', e); }
+    this.useHF = await hfClient.isEnabled().catch(() => false);
     if (this.useHF) {
       this.emitStep('learning', `HuggingFace vision pipeline active`);
     }
 
     // Check if Ark Vision is enabled and server is reachable
-    this.useArk = await this.ark.isEnabled();
+    this.useArk = await this.ark.isEnabled().catch(() => false);
     if (this.useArk) {
       const available = await this.ark.isServerAvailable();
       if (available) {
@@ -176,21 +180,28 @@ export class AgentCore {
     }
 
     // Start execution trace for this task
-    const initialPageUrl = await this.getPageUrl();
-    await executionMemory.startTrace(this.config.task, initialPageUrl);
+    console.log('[AgentCore] Starting execution trace...');
+    const initialPageUrl = await this.getPageUrl().catch(() => '');
+    try { await executionMemory.startTrace(this.config.task, initialPageUrl); } catch (e) { console.warn('[AgentCore] startTrace failed:', e); }
     this.emitStep('learning', `Memory loaded. Checking for learned patterns on this site...`);
 
     // Decide execution mode (skill replay, vision, DOM, or memory-guided)
-    this.modeDecision = await hybridBrain.decideMode({
-      task: this.config.task,
-      pageUrl: initialPageUrl,
-      pageTitle: '',
-      iteration: 0,
-      previousActions: [],
-      retryCount: 0,
-      domAvailable: true,
-      hasScreenshot: false,
-    });
+    console.log('[AgentCore] Deciding execution mode...');
+    try {
+      this.modeDecision = await hybridBrain.decideMode({
+        task: this.config.task,
+        pageUrl: initialPageUrl,
+        pageTitle: '',
+        iteration: 0,
+        previousActions: [],
+        retryCount: 0,
+        domAvailable: true,
+        hasScreenshot: false,
+      });
+    } catch (e) {
+      console.warn('[AgentCore] hybridBrain.decideMode failed, using defaults:', e);
+      this.modeDecision = { mode: 'vision', confidence: 0.5, reason: 'Fallback — hybridBrain unavailable' };
+    }
 
     // If a proven skill matches, prepare for skill-guided execution
     if (this.modeDecision.mode === 'skill' && this.modeDecision.skillSteps) {
@@ -204,26 +215,31 @@ export class AgentCore {
     hybridBrain.setCurrentMode(this.modeDecision.mode);
 
     // Initialize graceful degradation tracking
-    gracefulDegradation.startTask(`task_${Date.now()}`, this.config.task);
+    try { gracefulDegradation.startTask(`task_${Date.now()}`, this.config.task); } catch (e) { console.warn('[AgentCore] gracefulDegradation failed:', e); }
 
     // Run expert review challenge before starting
     if (this.config.onChallenge) {
-      const challenge = expertReview.challengeWorkflow({
-        task: this.config.task,
-        pageUrl: '',
-        pageTitle: '',
-        proposedActions: [],
-        previousActions: [],
-      });
+      try {
+        const challenge = expertReview.challengeWorkflow({
+          task: this.config.task,
+          pageUrl: '',
+          pageTitle: '',
+          proposedActions: [],
+          previousActions: [],
+        });
 
-      if (challenge) {
-        const response = await this.config.onChallenge(challenge);
-        if (response === 'cautious') {
-          this.autonomyLevel = 'cautious';
+        if (challenge) {
+          const response = await this.config.onChallenge(challenge);
+          if (response === 'cautious') {
+            this.autonomyLevel = 'cautious';
+          }
         }
+      } catch (e) {
+        console.warn('[AgentCore] Expert review failed:', e);
       }
     }
 
+    console.log('[AgentCore] Entering runLoop...');
     try {
       await this.runLoop();
     } catch (error) {
