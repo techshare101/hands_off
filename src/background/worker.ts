@@ -764,6 +764,22 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
     return { success: false, error: 'API key not configured' };
   }
 
+  // Pre-flight connectivity check for OpenRouter
+  const result2 = await chrome.storage.local.get('llmProvider');
+  const currentProvider = result2.llmProvider || 'gemini';
+  console.log('[Worker] LLM Provider:', currentProvider);
+  if (currentProvider === 'openrouter') {
+    try {
+      console.log('[Worker] Testing OpenRouter connectivity...');
+      const testResp = await fetch('https://openrouter.ai/api/v1/models', { method: 'GET' });
+      console.log('[Worker] OpenRouter test response:', testResp.status);
+    } catch (e) {
+      console.error('[Worker] OpenRouter connectivity FAILED:', e);
+      notifySidePanel('AGENT_ERROR', { error: `Cannot reach OpenRouter API: ${(e as Error)?.message}. Check internet or firewall.` });
+      return { success: false, error: 'Cannot reach OpenRouter API' };
+    }
+  }
+
   // Stop existing agent if running
   if (currentAgent) {
     currentAgent.stop();
