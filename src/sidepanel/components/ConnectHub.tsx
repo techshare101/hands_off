@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { Search, Plug, Users, Key, X, CheckCircle, AlertCircle, Loader2, ExternalLink, ChevronRight, Unplug } from 'lucide-react';
+import { Search, Plug, Users, Key, X, CheckCircle, AlertCircle, Loader2, ExternalLink, ChevronRight, Unplug, Boxes, RefreshCw } from 'lucide-react';
 import {
   APP_REGISTRY,
   CATEGORY_META,
@@ -10,6 +10,19 @@ import {
   type ConnectionMethod,
   type AppCategory,
 } from '../../agent/connectHub';
+
+// Composio-powered app (from live API)
+interface ComposioApp {
+  slug: string;
+  name: string;
+  description: string;
+  logo?: string;
+  categories?: string[];
+  connected: boolean;
+  accountId?: string;
+}
+
+type ViewMode = 'local' | 'composio';
 
 interface ConnectHubProps {
   isOpen: boolean;
@@ -26,29 +39,117 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
   const [configFields, setConfigFields] = useState<Record<string, string>>({});
   const [connectResult, setConnectResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Load connections on mount
+  // Composio state
+  const [viewMode, setViewMode] = useState<ViewMode>('local');
+  const [composioEnabled, setComposioEnabled] = useState(false);
+  const [composioApps, setComposioApps] = useState<ComposioApp[]>([]);
+  const [composioLoading, setComposioLoading] = useState(false);
+  const [composioCategories, setComposioCategories] = useState<string[]>([]);
+  const [activeComposioCat, setActiveComposioCat] = useState('all');
+  const [selectedComposioApp, setSelectedComposioApp] = useState<ComposioApp | null>(null);
+  const [composioConnecting, setComposioConnecting] = useState(false);
+  const [composioResult, setComposioResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Check if Composio is enabled and load data
   useEffect(() => {
     if (!isOpen) return;
+    // Load local connections
     const mgr = getConnectionManager();
     mgr.getAllConnections().then(conns => {
       const map = new Map<string, AppConnection>();
       conns.forEach(c => map.set(c.appId, c));
       setConnections(map);
     });
+    // Check Composio
+    chrome.storage.local.get(['composio_enabled', 'composio_api_key']).then(r => {
+      const enabled = r.composio_enabled && !!r.composio_api_key;
+      setComposioEnabled(enabled);
+      if (enabled) {
+        setViewMode('composio');
+        loadComposioApps();
+      }
+    });
   }, [isOpen]);
+
+  const loadComposioApps = async () => {
+    setComposioLoading(true);
+    try {
+      const [tkRes, catRes] = await Promise.all([
+        chrome.runtime.sendMessage({ type: 'COMPOSIO_GET_TOOLKITS' }),
+        chrome.runtime.sendMessage({ type: 'COMPOSIO_GET_CATEGORIES' }),
+      ]);
+      if (tkRes?.success && tkRes.result) {
+        setComposioApps(tkRes.result);
+      }
+      if (catRes?.success && catRes.result) {
+        setComposioCategories(catRes.result.slice(0, 12));
+      }
+    } catch (e) {
+      console.error('[ConnectHub] Failed to load Composio apps:', e);
+    }
+    setComposioLoading(false);
+  };
+
+  const handleComposioConnect = async (app: ComposioApp) => {
+    setComposioConnecting(true);
+    setComposioResult(null);
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'COMPOSIO_INITIATE_CONNECTION',
+        payload: { toolkitSlug: app.slug },
+      });
+      if (res?.success && res.result) {
+        if (res.result.redirect_url) {
+          // OAuth flow — open in new tab
+          chrome.tabs.create({ url: res.result.redirect_url });
+          setComposioResult({ ok: true, msg: `OAuth started for ${app.name}. Complete in the opened tab.` });
+        } else if (res.result.connection_status === 'active' || res.result.connection_status === 'connected') {
+          setComposioResult({ ok: true, msg: `${app.name} connected!` });
+          // Refresh the list
+          loadComposioApps();
+        } else {
+          setComposioResult({ ok: true, msg: `Connection initiated (${res.result.connection_status})` });
+        }
+      } else {
+        setComposioResult({ ok: false, msg: 'Failed to initiate connection' });
+      }
+    } catch (e) {
+      setComposioResult({ ok: false, msg: e instanceof Error ? e.message : 'Unknown error' });
+    }
+    setComposioConnecting(false);
+  };
+
+  const handleComposioDisconnect = async (app: ComposioApp) => {
+    if (!app.accountId) return;
+    try {
+      await chrome.runtime.sendMessage({ type: 'COMPOSIO_DISCONNECT', payload: { nanoid: app.accountId } });
+      setComposioApps(prev => prev.map(a => a.slug === app.slug ? { ...a, connected: false, accountId: undefined } : a));
+      setSelectedComposioApp(null);
+    } catch (e) {
+      console.error('[ConnectHub] Disconnect failed:', e);
+    }
+  };
 
   if (!isOpen) return null;
 
-  // Filter apps
+  // Filter local apps
   const filtered = APP_REGISTRY.filter(app => {
     const matchSearch = !search || app.name.toLowerCase().includes(search.toLowerCase()) || app.description.toLowerCase().includes(search.toLowerCase());
     const matchCat = activeCategory === 'all' || app.category === activeCategory;
     return matchSearch && matchCat;
   });
 
-  // Group by category
+  // Filter Composio apps
+  const filteredComposio = composioApps.filter(app => {
+    const matchSearch = !search || app.name.toLowerCase().includes(search.toLowerCase()) || app.description?.toLowerCase().includes(search.toLowerCase());
+    const matchCat = activeComposioCat === 'all' || (app.categories || []).includes(activeComposioCat);
+    return matchSearch && matchCat;
+  });
+
   const categories = [...new Set(APP_REGISTRY.map(a => a.category))];
-  const connectedCount = Array.from(connections.values()).filter(c => c.status === 'connected').length;
+  const localConnectedCount = Array.from(connections.values()).filter(c => c.status === 'connected').length;
+  const composioConnectedCount = composioApps.filter(a => a.connected).length;
+  const connectedCount = viewMode === 'composio' ? composioConnectedCount : localConnectedCount;
 
   const openAppModal = (app: AppDefinition) => {
     setSelectedApp(app);
@@ -120,9 +221,27 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
             </h2>
             <p className="text-xs text-handoff-muted">{connectedCount} app{connectedCount !== 1 ? 's' : ''} connected</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-handoff-dark text-handoff-muted hover:text-white transition-colors">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {composioEnabled && (
+              <div className="flex bg-handoff-dark rounded-lg p-0.5">
+                <button
+                  onClick={() => setViewMode('composio')}
+                  className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${viewMode === 'composio' ? 'bg-indigo-500/20 text-indigo-300' : 'text-handoff-muted hover:text-white'}`}
+                >
+                  <Boxes className="w-3 h-3 inline mr-1" />Composio
+                </button>
+                <button
+                  onClick={() => setViewMode('local')}
+                  className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${viewMode === 'local' ? 'bg-purple-500/20 text-purple-300' : 'text-handoff-muted hover:text-white'}`}
+                >
+                  Manual
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-handoff-dark text-handoff-muted hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -139,61 +258,70 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
           </div>
         </div>
 
-        {/* Category Tabs */}
-        <div className="px-4 pb-2 flex gap-1.5 overflow-x-auto scrollbar-none">
-          <button
-            onClick={() => setActiveCategory('all')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${activeCategory === 'all' ? 'bg-purple-500/20 text-purple-300' : 'bg-handoff-dark text-handoff-muted hover:text-white'}`}
-          >
-            All
-          </button>
-          {categories.map(cat => (
+        {/* ═══ COMPOSIO VIEW ═══ */}
+        {viewMode === 'composio' && (<>
+          {/* Composio Category Tabs */}
+          <div className="px-4 pb-2 flex gap-1.5 overflow-x-auto scrollbar-none">
             <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-purple-500/20 text-purple-300' : 'bg-handoff-dark text-handoff-muted hover:text-white'}`}
+              onClick={() => setActiveComposioCat('all')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${activeComposioCat === 'all' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-handoff-dark text-handoff-muted hover:text-white'}`}
             >
-              {CATEGORY_META[cat].icon} {CATEGORY_META[cat].label}
+              All
             </button>
-          ))}
-        </div>
+            {composioCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveComposioCat(cat)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors capitalize ${activeComposioCat === cat ? 'bg-indigo-500/20 text-indigo-300' : 'bg-handoff-dark text-handoff-muted hover:text-white'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
 
-        {/* App Grid */}
-        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
-          {filtered.map(app => {
-            const conn = connections.get(app.id);
-            const isConnected = conn?.status === 'connected';
-            return (
+          {/* Composio App Grid */}
+          <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
+            {composioLoading && (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
+                <span className="ml-2 text-sm text-handoff-muted">Loading 250+ apps from Composio...</span>
+              </div>
+            )}
+
+            {!composioLoading && filteredComposio.map(app => (
               <div
-                key={app.id}
+                key={app.slug}
                 className={`flex items-center justify-between p-3 rounded-xl border transition-colors cursor-pointer ${
-                  isConnected
+                  app.connected
                     ? 'bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40'
-                    : 'bg-handoff-dark/50 border-handoff-dark hover:border-purple-500/30'
+                    : 'bg-handoff-dark/50 border-handoff-dark hover:border-indigo-500/30'
                 }`}
-                onClick={() => openAppModal(app)}
+                onClick={() => setSelectedComposioApp(app)}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-2xl flex-shrink-0">{app.icon}</span>
+                  {app.logo
+                    ? <img src={app.logo} alt={app.name} className="w-8 h-8 rounded-lg flex-shrink-0 object-contain bg-white/10 p-0.5" />
+                    : <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-300 text-sm font-bold flex-shrink-0">{app.name[0]}</div>
+                  }
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-semibold text-white truncate">{app.name}</h3>
-                      {getStatusBadge(app.id)}
+                      {app.connected && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">Connected</span>}
                     </div>
-                    <p className="text-[11px] text-handoff-muted truncate">{app.description}</p>
-                    <div className="flex gap-1 mt-1">
-                      {app.methods.map(m => (
-                        <span key={m} className="text-[9px] px-1.5 py-0.5 rounded bg-handoff-dark text-handoff-muted">
-                          {METHOD_LABELS[m]}
-                        </span>
-                      ))}
-                    </div>
+                    <p className="text-[11px] text-handoff-muted truncate">{app.description || app.slug}</p>
+                    {app.categories && app.categories.length > 0 && (
+                      <div className="flex gap-1 mt-1">
+                        {app.categories.slice(0, 3).map(c => (
+                          <span key={c} className="text-[9px] px-1.5 py-0.5 rounded bg-handoff-dark text-handoff-muted capitalize">{c}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                  {isConnected && (
+                  {app.connected && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDisconnect(app.id); }}
+                      onClick={(e) => { e.stopPropagation(); handleComposioDisconnect(app); }}
                       className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                       title="Disconnect"
                     >
@@ -203,15 +331,162 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
                   <ChevronRight className="w-4 h-4 text-handoff-muted" />
                 </div>
               </div>
-            );
-          })}
+            ))}
 
-          {filtered.length === 0 && (
-            <div className="text-center py-8 text-handoff-muted text-sm">
-              No apps found matching "{search}"
+            {!composioLoading && filteredComposio.length === 0 && (
+              <div className="text-center py-8 text-handoff-muted text-sm">
+                {search ? `No apps found matching "${search}"` : 'No apps loaded. Check your Composio API key in Settings.'}
+              </div>
+            )}
+
+            {!composioLoading && composioApps.length > 0 && (
+              <button
+                onClick={loadComposioApps}
+                className="w-full py-2 text-xs text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1 transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" /> Refresh app list
+              </button>
+            )}
+          </div>
+
+          {/* Composio Connection Modal */}
+          {selectedComposioApp && (
+            <div className="fixed inset-0 z-60 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelectedComposioApp(null)}>
+              <div className="bg-handoff-darker rounded-2xl w-full max-w-sm border border-handoff-dark shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3 p-4 border-b border-handoff-dark">
+                  {selectedComposioApp.logo
+                    ? <img src={selectedComposioApp.logo} alt={selectedComposioApp.name} className="w-10 h-10 rounded-xl object-contain bg-white/10 p-1" />
+                    : <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center text-indigo-300 text-lg font-bold">{selectedComposioApp.name[0]}</div>
+                  }
+                  <div>
+                    <h3 className="text-base font-bold text-white">{selectedComposioApp.name}</h3>
+                    <p className="text-xs text-handoff-muted">{selectedComposioApp.description || selectedComposioApp.slug}</p>
+                  </div>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <p className="text-xs text-handoff-muted">
+                    Composio handles authentication automatically. Click Connect to start the OAuth flow or API key setup.
+                  </p>
+
+                  {selectedComposioApp.connected && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg text-xs bg-emerald-500/10 text-emerald-400">
+                      <CheckCircle className="w-3.5 h-3.5" /> Already connected
+                    </div>
+                  )}
+
+                  {composioResult && (
+                    <div className={`flex items-center gap-2 p-2 rounded-lg text-xs ${
+                      composioResult.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                    }`}>
+                      {composioResult.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                      {composioResult.msg}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 p-4 pt-0">
+                  <button onClick={() => setSelectedComposioApp(null)} className="px-4 py-2 text-sm text-handoff-muted hover:text-white transition-colors">
+                    Cancel
+                  </button>
+                  {selectedComposioApp.connected ? (
+                    <button
+                      onClick={() => handleComposioDisconnect(selectedComposioApp)}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                      <Unplug className="w-3.5 h-3.5" /> Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleComposioConnect(selectedComposioApp)}
+                      disabled={composioConnecting}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                      {composioConnecting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...</> : 'Connect'}
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-        </div>
+        </>)}
+
+        {/* ═══ LOCAL/MANUAL VIEW ═══ */}
+        {viewMode === 'local' && (<>
+          {/* Category Tabs */}
+          <div className="px-4 pb-2 flex gap-1.5 overflow-x-auto scrollbar-none">
+            <button
+              onClick={() => setActiveCategory('all')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${activeCategory === 'all' ? 'bg-purple-500/20 text-purple-300' : 'bg-handoff-dark text-handoff-muted hover:text-white'}`}
+            >
+              All
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-purple-500/20 text-purple-300' : 'bg-handoff-dark text-handoff-muted hover:text-white'}`}
+              >
+                {CATEGORY_META[cat].icon} {CATEGORY_META[cat].label}
+              </button>
+            ))}
+          </div>
+
+          {/* App Grid */}
+          <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
+            {filtered.map(app => {
+              const conn = connections.get(app.id);
+              const isConnected = conn?.status === 'connected';
+              return (
+                <div
+                  key={app.id}
+                  className={`flex items-center justify-between p-3 rounded-xl border transition-colors cursor-pointer ${
+                    isConnected
+                      ? 'bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40'
+                      : 'bg-handoff-dark/50 border-handoff-dark hover:border-purple-500/30'
+                  }`}
+                  onClick={() => openAppModal(app)}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-2xl flex-shrink-0">{app.icon}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-white truncate">{app.name}</h3>
+                        {getStatusBadge(app.id)}
+                      </div>
+                      <p className="text-[11px] text-handoff-muted truncate">{app.description}</p>
+                      <div className="flex gap-1 mt-1">
+                        {app.methods.map(m => (
+                          <span key={m} className="text-[9px] px-1.5 py-0.5 rounded bg-handoff-dark text-handoff-muted">
+                            {METHOD_LABELS[m]}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    {isConnected && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDisconnect(app.id); }}
+                        className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                        title="Disconnect"
+                      >
+                        <Unplug className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-handoff-muted" />
+                  </div>
+                </div>
+              );
+            })}
+
+            {filtered.length === 0 && (
+              <div className="text-center py-8 text-handoff-muted text-sm">
+                No apps found matching "{search}"
+              </div>
+            )}
+          </div>
+        </>)}
 
         {/* Connection Modal */}
         {selectedApp && (

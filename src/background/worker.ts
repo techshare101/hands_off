@@ -25,6 +25,7 @@ import { a2ui, A2UI_TEMPLATES, validateWidgetPayload } from '../agent/a2ui';
 import type { A2UIWidgetPayload, A2UIUserAction } from '../agent/a2ui';
 import { mcpClient } from '../agent/mcpClient';
 import { a2aProtocol } from '../agent/a2aProtocol';
+import { getComposioClient } from '../agent/composioClient';
 import { keepAlive } from './keepAlive';
 
 // LLM Client interface (all clients implement this)
@@ -673,6 +674,62 @@ async function handleMessage(
     case 'A2A_HANDLE_INCOMING': {
       const inResult = await a2aProtocol.handleIncomingTask(message.payload as any);
       return { success: true, result: inResult };
+    }
+
+    // ── Composio Handlers ─────────────────────────────────────────
+
+    case 'COMPOSIO_HEALTH_CHECK': {
+      const composio = getComposioClient();
+      await composio.loadConfig();
+      const available = await composio.healthCheck();
+      return { success: true, available };
+    }
+
+    case 'COMPOSIO_GET_TOOLKITS': {
+      const composio = getComposioClient();
+      const toolkits = await composio.getToolkitsWithStatus();
+      return { success: true, result: toolkits };
+    }
+
+    case 'COMPOSIO_GET_CATEGORIES': {
+      const composio = getComposioClient();
+      const categories = await composio.getCategories();
+      return { success: true, result: categories };
+    }
+
+    case 'COMPOSIO_GET_TOOLS': {
+      const composio = getComposioClient();
+      const { toolkit, search, limit } = (message.payload || {}) as { toolkit?: string; search?: string; limit?: number };
+      const tools = await composio.getTools({ toolkit, search, limit });
+      return { success: true, result: tools };
+    }
+
+    case 'COMPOSIO_EXECUTE_TOOL': {
+      const composio = getComposioClient();
+      const { toolSlug, params, connectedAccountId } = message.payload as { toolSlug: string; params: Record<string, unknown>; connectedAccountId?: string };
+      const execResult = await composio.executeTool(toolSlug, params, connectedAccountId);
+      return { success: true, result: execResult };
+    }
+
+    case 'COMPOSIO_INITIATE_CONNECTION': {
+      const composio = getComposioClient();
+      const { toolkitSlug, redirectUrl } = message.payload as { toolkitSlug: string; redirectUrl?: string };
+      const connResult = await composio.initiateConnection(toolkitSlug, redirectUrl);
+      return { success: true, result: connResult };
+    }
+
+    case 'COMPOSIO_GET_CONNECTED_ACCOUNTS': {
+      const composio = getComposioClient();
+      const { toolkit_slug } = (message.payload || {}) as { toolkit_slug?: string };
+      const accounts = await composio.getConnectedAccounts({ toolkit_slug });
+      return { success: true, result: accounts };
+    }
+
+    case 'COMPOSIO_DISCONNECT': {
+      const composio = getComposioClient();
+      const { nanoid } = message.payload as { nanoid: string };
+      await composio.disconnectAccount(nanoid);
+      return { success: true };
     }
 
     case 'KEEPALIVE_PING':

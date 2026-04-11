@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Key, Save, Check, Eye, Brain, Globe, Video, FileDown, Plug, Plus, Trash2, Share2, Sparkles } from 'lucide-react';
+import { X, Key, Save, Check, Eye, Brain, Globe, Video, FileDown, Plug, Plus, Trash2, Share2, Sparkles, Boxes } from 'lucide-react';
 import { OPENROUTER_VISION_MODELS } from '../../agent/openRouterClient';
 import { ROUTELLM_MODELS } from '../../agent/routeLLMClient';
 import { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from '../../agent/openAICompatClient';
@@ -61,6 +61,11 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [hfEnabled, setHfEnabled] = useState(false);
   const [hfStatus, setHfStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
 
+  // Composio state
+  const [composioKey, setComposioKey] = useState('');
+  const [composioEnabled, setComposioEnabled] = useState(false);
+  const [composioStatus, setComposioStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
+
   // API Tool state
   const [apiEnabled, setApiEnabled] = useState(false);
   const [apiDomains, setApiDomains] = useState<string[]>([]);
@@ -99,7 +104,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'ark_model', 'hf_api_token', 'hf_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config', 'handoff_a2a_config'];
+    const allStorageKeys = ['llmProvider', 'ark_enabled', 'ark_endpoint', 'ark_model', 'hf_api_token', 'hf_enabled', 'composio_api_key', 'composio_enabled', 'handoff_api_tool_config', 'handoff_mcp_config', 'handoff_mcp_client_config', 'handoff_a2a_config'];
     Object.values(PROVIDER_META).forEach(m => {
       allStorageKeys.push(m.storageKey);
       if (m.modelStorageKey) allStorageKeys.push(m.modelStorageKey);
@@ -111,6 +116,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       if (result.ark_model) setArkModel(result.ark_model);
       if (result.hf_api_token) setHfToken(result.hf_api_token);
       if (result.hf_enabled) setHfEnabled(result.hf_enabled);
+      if (result.composio_api_key) setComposioKey(result.composio_api_key);
+      if (result.composio_enabled) setComposioEnabled(result.composio_enabled);
       if (result.handoff_api_tool_config) {
         const apiCfg = result.handoff_api_tool_config;
         setApiEnabled(apiCfg.enabled ?? false);
@@ -148,6 +155,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       ark_model: arkModel,
       hf_api_token: hfToken,
       hf_enabled: hfEnabled,
+      composio_api_key: composioKey,
+      composio_enabled: composioEnabled,
       ...keys,
       ...models,
     };
@@ -392,6 +401,66 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                 </div>
                 <p className="text-[10px] text-handoff-muted">
                   Get your free token from <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">huggingface.co/settings/tokens</a>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Composio Integration */}
+          <div className="border-t border-handoff-dark pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-white flex items-center gap-2">
+                <Boxes className="w-4 h-4 text-indigo-400" />
+                Composio (250+ Apps)
+              </label>
+              <button
+                onClick={() => setComposioEnabled(!composioEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${composioEnabled ? 'bg-emerald-500' : 'bg-handoff-dark'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${composioEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            <p className="text-xs text-handoff-muted mb-3">
+              Unified API for Gmail, Slack, GitHub, Notion, and 250+ apps. Handles OAuth, API keys, and tool execution.
+            </p>
+            {composioEnabled && (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={composioKey}
+                    onChange={(e) => setComposioKey(e.target.value)}
+                    placeholder="ak_..."
+                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                  <button
+                    onClick={async () => {
+                      setComposioStatus('checking');
+                      try {
+                        // Save key first so the client can use it
+                        await chrome.storage.local.set({ composio_api_key: composioKey, composio_enabled: true });
+                        const res = await chrome.runtime.sendMessage({ type: 'COMPOSIO_HEALTH_CHECK' });
+                        setComposioStatus(res?.available ? 'online' : 'offline');
+                      } catch {
+                        setComposioStatus('offline');
+                      }
+                      setTimeout(() => setComposioStatus('unknown'), 8000);
+                    }}
+                    disabled={composioStatus === 'checking' || !composioKey.trim()}
+                    className={`px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
+                      composioStatus === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
+                      composioStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
+                      composioStatus === 'checking' ? 'bg-indigo-500/20 text-indigo-400 animate-pulse' :
+                      'bg-handoff-dark text-handoff-muted hover:text-white'
+                    }`}
+                  >
+                    {composioStatus === 'checking' ? 'Testing...' :
+                     composioStatus === 'online' ? 'Connected' :
+                     composioStatus === 'offline' ? 'Failed' : 'Test'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-handoff-muted">
+                  Get your API key from <a href="https://app.composio.dev/settings" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">app.composio.dev</a>. Use the <span className="text-purple-400">Connect Hub</span> to browse and connect apps.
                 </p>
               </div>
             )}
