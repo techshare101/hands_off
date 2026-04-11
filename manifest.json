@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "HandOff",
+  "name": "HandOff - AI Browser Agent",
   "version": "1.0.0",
-  "description": "Hand work off to an AI agent that actually uses the web for you.",
+  "description": "AI browser agent with multi-LLM routing, MCP connectivity, and Connect Hub. Automate workflows directly in your browser.",
   "permissions": [
     "activeTab",
     "tabs",
