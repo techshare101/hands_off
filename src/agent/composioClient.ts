@@ -36,10 +36,21 @@ export interface ComposioConnectedAccount {
   id: string;
   nanoid?: string;
   toolkit_slug: string;
+  toolkit?: { slug: string; name?: string; id?: string };
   status: string;
   created_at?: string;
   updated_at?: string;
   member_id?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface ComposioAuthConfig {
+  id: string;
+  name: string;
+  toolkit?: { id: string; slug: string; name: string };
+  authScheme?: string;
+  type?: string;
+  isDisabled?: boolean;
   meta?: Record<string, unknown>;
 }
 
@@ -51,9 +62,15 @@ export interface ComposioConnectionRequest {
 }
 
 export interface ComposioConnectionResponse {
-  connection_status: string;
+  connection_status?: string;
+  connectionStatus?: string;
   connected_account_id?: string;
+  connectedAccountId?: string;
   redirect_url?: string;
+  redirectUrl?: string;
+  id?: string;
+  nanoid?: string;
+  status?: string;
 }
 
 export interface ComposioExecuteRequest {
@@ -229,13 +246,46 @@ export class ComposioClient {
     return result.items || (result as unknown as ComposioConnectedAccount[]) || [];
   }
 
+  // ── Auth Configs ──────────────────────────────────────────────────
+
+  async getAuthConfigs(toolkit?: string): Promise<ComposioAuthConfig[]> {
+    const query = new URLSearchParams();
+    if (toolkit) query.set('toolkit', toolkit);
+    const qs = query.toString();
+    const result = await this.request<{ items?: ComposioAuthConfig[] }>(`/api/v3/auth_configs${qs ? '?' + qs : ''}`);
+    return result.items || (result as unknown as ComposioAuthConfig[]) || [];
+  }
+
   async initiateConnection(toolkitSlug: string, redirectUrl?: string): Promise<ComposioConnectionResponse> {
+    // v3 API requires auth_config_id — look it up from the toolkit
+    console.log(`[Composio] Initiating connection for toolkit: ${toolkitSlug}`);
+    
+    let authConfigId: string | undefined;
+    try {
+      const configs = await this.getAuthConfigs(toolkitSlug);
+      console.log(`[Composio] Found ${configs.length} auth configs for ${toolkitSlug}`);
+      // Pick the first non-disabled config
+      const activeConfig = configs.find(c => !c.isDisabled) || configs[0];
+      if (activeConfig) {
+        authConfigId = activeConfig.id;
+        console.log(`[Composio] Using auth config: ${authConfigId} (${activeConfig.authScheme || activeConfig.type || 'unknown'})`);
+      }
+    } catch (e) {
+      console.warn(`[Composio] Could not fetch auth configs for ${toolkitSlug}:`, e);
+    }
+
     const body: Record<string, unknown> = {
-      toolkit_slug: toolkitSlug,
       user_id: this.userId,
     };
+    // Use auth_config_id if found, otherwise fall back to toolkit_slug
+    if (authConfigId) {
+      body.auth_config_id = authConfigId;
+    } else {
+      body.toolkit_slug = toolkitSlug;
+    }
     if (redirectUrl) body.redirect_url = redirectUrl;
 
+    console.log(`[Composio] POST /api/v3/connected_accounts body:`, JSON.stringify(body));
     return this.request<ComposioConnectionResponse>('/api/v3/connected_accounts', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -257,7 +307,9 @@ export class ComposioClient {
     const accountMap = new Map<string, ComposioConnectedAccount>();
     for (const acc of accounts) {
       if (acc.status === 'active' || acc.status === 'connected') {
-        accountMap.set(acc.toolkit_slug, acc);
+        // v3 may nest toolkit slug inside a toolkit object
+        const slug = acc.toolkit_slug || acc.toolkit?.slug || '';
+        if (slug) accountMap.set(slug, acc);
       }
     }
 

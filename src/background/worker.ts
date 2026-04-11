@@ -717,10 +717,15 @@ async function handleMessage(
     }
 
     case 'COMPOSIO_INITIATE_CONNECTION': {
-      const composio = getComposioClient();
-      const { toolkitSlug, redirectUrl } = message.payload as { toolkitSlug: string; redirectUrl?: string };
-      const connResult = await composio.initiateConnection(toolkitSlug, redirectUrl);
-      return { success: true, result: connResult };
+      try {
+        const composio = getComposioClient();
+        const { toolkitSlug, redirectUrl } = message.payload as { toolkitSlug: string; redirectUrl?: string };
+        const connResult = await composio.initiateConnection(toolkitSlug, redirectUrl);
+        return { success: true, result: connResult };
+      } catch (e) {
+        console.error('[Worker] COMPOSIO_INITIATE_CONNECTION error:', e);
+        return { success: false, error: e instanceof Error ? e.message : String(e) };
+      }
     }
 
     case 'COMPOSIO_GET_CONNECTED_ACCOUNTS': {

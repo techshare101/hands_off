@@ -103,19 +103,24 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
         payload: { toolkitSlug: app.slug },
       });
       if (res?.success && res.result) {
-        if (res.result.redirect_url) {
-          // OAuth flow — open in new tab
-          chrome.tabs.create({ url: res.result.redirect_url });
-          setComposioResult({ ok: true, msg: `OAuth started for ${app.name}. Complete in the opened tab.` });
-        } else if (res.result.connection_status === 'active' || res.result.connection_status === 'connected') {
+        const r = res.result;
+        // v3 API may return camelCase or snake_case
+        const redirectUrl = r.redirect_url || r.redirectUrl;
+        const status = r.connection_status || r.connectionStatus || r.status || '';
+
+        if (redirectUrl) {
+          chrome.tabs.create({ url: redirectUrl });
+          setComposioResult({ ok: true, msg: `OAuth started for ${app.name}. Complete in the opened tab, then refresh.` });
+        } else if (status === 'active' || status === 'connected' || status === 'initiated') {
           setComposioResult({ ok: true, msg: `${app.name} connected!` });
-          // Refresh the list
           loadComposioApps();
         } else {
-          setComposioResult({ ok: true, msg: `Connection initiated (${res.result.connection_status})` });
+          setComposioResult({ ok: true, msg: `Connection initiated${status ? ` (${status})` : ''}. Refresh to check status.` });
+          loadComposioApps();
         }
       } else {
-        setComposioResult({ ok: false, msg: 'Failed to initiate connection' });
+        const errMsg = res?.error || 'Failed to initiate connection';
+        setComposioResult({ ok: false, msg: errMsg });
       }
     } catch (e) {
       setComposioResult({ ok: false, msg: e instanceof Error ? e.message : 'Unknown error' });
