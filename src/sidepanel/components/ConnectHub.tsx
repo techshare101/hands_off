@@ -75,14 +75,18 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
     setComposioLoading(true);
     try {
       const [tkRes, catRes] = await Promise.all([
-        chrome.runtime.sendMessage({ type: 'COMPOSIO_GET_TOOLKITS' }),
-        chrome.runtime.sendMessage({ type: 'COMPOSIO_GET_CATEGORIES' }),
+        chrome.runtime.sendMessage({ type: 'COMPOSIO_GET_TOOLKITS' }).catch(() => null),
+        chrome.runtime.sendMessage({ type: 'COMPOSIO_GET_CATEGORIES' }).catch(() => null),
       ]);
-      if (tkRes?.success && tkRes.result) {
+      if (tkRes?.success && Array.isArray(tkRes.result)) {
         setComposioApps(tkRes.result);
       }
-      if (catRes?.success && catRes.result) {
-        setComposioCategories(catRes.result.slice(0, 12));
+      if (catRes?.success && Array.isArray(catRes.result)) {
+        // Categories may be strings or objects — normalize to strings
+        const cats = catRes.result.map((c: unknown) =>
+          typeof c === 'string' ? c : (c && typeof c === 'object' && 'name' in c) ? String((c as any).name) : String(c)
+        ).filter(Boolean);
+        setComposioCategories(cats.slice(0, 12));
       }
     } catch (e) {
       console.error('[ConnectHub] Failed to load Composio apps:', e);
@@ -141,8 +145,9 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
 
   // Filter Composio apps
   const filteredComposio = composioApps.filter(app => {
-    const matchSearch = !search || app.name.toLowerCase().includes(search.toLowerCase()) || app.description?.toLowerCase().includes(search.toLowerCase());
-    const matchCat = activeComposioCat === 'all' || (app.categories || []).includes(activeComposioCat);
+    const matchSearch = !search || (app.name || '').toLowerCase().includes(search.toLowerCase()) || (app.description || '').toLowerCase().includes(search.toLowerCase());
+    const appCats = (app.categories || []).map(c => typeof c === 'string' ? c : String(c));
+    const matchCat = activeComposioCat === 'all' || appCats.includes(activeComposioCat);
     return matchSearch && matchCat;
   });
 
@@ -311,8 +316,8 @@ export default function ConnectHub({ isOpen, onClose }: ConnectHubProps) {
                     <p className="text-[11px] text-handoff-muted truncate">{app.description || app.slug}</p>
                     {app.categories && app.categories.length > 0 && (
                       <div className="flex gap-1 mt-1">
-                        {app.categories.slice(0, 3).map(c => (
-                          <span key={c} className="text-[9px] px-1.5 py-0.5 rounded bg-handoff-dark text-handoff-muted capitalize">{c}</span>
+                        {app.categories.slice(0, 3).map((c, idx) => (
+                          <span key={idx} className="text-[9px] px-1.5 py-0.5 rounded bg-handoff-dark text-handoff-muted capitalize">{typeof c === 'string' ? c : String(c)}</span>
                         ))}
                       </div>
                     )}
