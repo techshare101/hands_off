@@ -76,23 +76,21 @@ export class ComposioClient {
   private apiKey: string = '';
   private enabled: boolean = false;
   private userId: string = 'handoff-default';
-  private initialized: boolean = false;
 
   async loadConfig(): Promise<void> {
     try {
       const result = await chrome.storage.local.get([STORAGE_KEY_API, STORAGE_KEY_ENABLED, STORAGE_KEY_USER]);
       this.apiKey = result[STORAGE_KEY_API] || '';
-      this.enabled = result[STORAGE_KEY_ENABLED] === true;
+      this.enabled = !!result[STORAGE_KEY_ENABLED];
       this.userId = result[STORAGE_KEY_USER] || 'handoff-default';
-      this.initialized = true;
-      console.log(`[Composio] Config loaded: enabled=${this.enabled}, hasKey=${!!this.apiKey}`);
-    } catch {
-      this.initialized = true;
+      console.log(`[Composio] Config loaded: enabled=${this.enabled}, hasKey=${!!this.apiKey}, keyPrefix=${this.apiKey?.slice(0, 6) || 'none'}`);
+    } catch (e) {
+      console.error('[Composio] Failed to load config:', e);
     }
   }
 
   async isEnabled(): Promise<boolean> {
-    if (!this.initialized) await this.loadConfig();
+    await this.loadConfig();
     return this.enabled && !!this.apiKey;
   }
 
@@ -107,7 +105,7 @@ export class ComposioClient {
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    if (!this.initialized) await this.loadConfig();
+    if (!this.apiKey) await this.loadConfig();
     if (!this.apiKey) throw new Error('Composio API key not configured');
 
     const url = `${BASE_URL}${path}`;
@@ -132,10 +130,15 @@ export class ComposioClient {
 
   async healthCheck(): Promise<boolean> {
     try {
-      if (!this.initialized) await this.loadConfig();
-      if (!this.apiKey) return false;
-      // Fetch toolkits with limit=1 to verify API key works
-      await this.request('/api/v3/toolkits?limit=1');
+      // Always reload config to pick up freshly-saved key
+      await this.loadConfig();
+      if (!this.apiKey) {
+        console.warn('[Composio] Health check: no API key configured');
+        return false;
+      }
+      console.log('[Composio] Health check: calling /api/v3/toolkits...');
+      const result = await this.request<unknown>('/api/v3/toolkits?limit=1');
+      console.log('[Composio] Health check OK:', typeof result);
       return true;
     } catch (e) {
       console.error('[Composio] Health check failed:', e);

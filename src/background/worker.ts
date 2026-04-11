@@ -679,10 +679,15 @@ async function handleMessage(
     // ── Composio Handlers ─────────────────────────────────────────
 
     case 'COMPOSIO_HEALTH_CHECK': {
-      const composio = getComposioClient();
-      await composio.loadConfig();
-      const available = await composio.healthCheck();
-      return { success: true, available };
+      try {
+        const composio = getComposioClient();
+        await composio.loadConfig();
+        const available = await composio.healthCheck();
+        return { success: true, available };
+      } catch (e) {
+        console.error('[Worker] COMPOSIO_HEALTH_CHECK error:', e);
+        return { success: true, available: false, error: e instanceof Error ? e.message : String(e) };
+      }
     }
 
     case 'COMPOSIO_GET_TOOLKITS': {
