@@ -109,18 +109,27 @@ export class ComposioClient {
     if (!this.apiKey) throw new Error('Composio API key not configured');
 
     const url = `${BASE_URL}${path}`;
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        ...((options.headers as Record<string, string>) || {}),
-      },
-    });
+    console.log(`[Composio] Request: ${options.method || 'GET'} ${url}`);
+    
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          ...((options.headers as Record<string, string>) || {}),
+        },
+      });
+    } catch (fetchErr) {
+      console.error(`[Composio] Fetch failed for ${url}:`, fetchErr);
+      throw new Error(`Network error calling ${path}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Composio API error ${res.status}: ${text}`);
+      console.error(`[Composio] HTTP ${res.status} from ${path}: ${text.slice(0, 200)}`);
+      throw new Error(`Composio API ${res.status}: ${text.slice(0, 200)}`);
     }
 
     return res.json();
@@ -128,21 +137,30 @@ export class ComposioClient {
 
   // ── Health Check ─────────────────────────────────────────────────
 
-  async healthCheck(): Promise<boolean> {
+  async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
       // Always reload config to pick up freshly-saved key
       await this.loadConfig();
       if (!this.apiKey) {
-        console.warn('[Composio] Health check: no API key configured');
-        return false;
+        return { ok: false, error: 'No API key configured' };
       }
-      console.log('[Composio] Health check: calling /api/v3/toolkits...');
-      const result = await this.request<unknown>('/api/v3/toolkits?limit=1');
-      console.log('[Composio] Health check OK:', typeof result);
-      return true;
+      // Try auth/session first (lightest endpoint)
+      try {
+        console.log('[Composio] Health check: trying /api/v3/auth/session/info...');
+        await this.request<unknown>('/api/v3/auth/session/info');
+        console.log('[Composio] Health check OK via session/info');
+        return { ok: true };
+      } catch (sessionErr) {
+        console.warn('[Composio] session/info failed, trying /api/v3/toolkits...', sessionErr);
+      }
+      // Fallback: try toolkits
+      await this.request<unknown>('/api/v3/toolkits?limit=1');
+      console.log('[Composio] Health check OK via toolkits');
+      return { ok: true };
     } catch (e) {
-      console.error('[Composio] Health check failed:', e);
-      return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Composio] Health check failed:', msg);
+      return { ok: false, error: msg };
     }
   }
 

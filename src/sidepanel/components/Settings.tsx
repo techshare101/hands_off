@@ -65,6 +65,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [composioKey, setComposioKey] = useState('');
   const [composioEnabled, setComposioEnabled] = useState(false);
   const [composioStatus, setComposioStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
+  const [composioError, setComposioError] = useState('');
 
   // API Tool state
   const [apiEnabled, setApiEnabled] = useState(false);
@@ -436,15 +437,22 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                   <button
                     onClick={async () => {
                       setComposioStatus('checking');
+                      setComposioError('');
                       try {
                         // Save key first so the client can use it
                         await chrome.storage.local.set({ composio_api_key: composioKey, composio_enabled: true });
                         const res = await chrome.runtime.sendMessage({ type: 'COMPOSIO_HEALTH_CHECK' });
-                        setComposioStatus(res?.available ? 'online' : 'offline');
-                      } catch {
+                        if (res?.available) {
+                          setComposioStatus('online');
+                        } else {
+                          setComposioStatus('offline');
+                          setComposioError(res?.error || 'Connection failed');
+                        }
+                      } catch (e) {
                         setComposioStatus('offline');
+                        setComposioError(e instanceof Error ? e.message : 'Connection failed');
                       }
-                      setTimeout(() => setComposioStatus('unknown'), 8000);
+                      setTimeout(() => setComposioStatus('unknown'), 12000);
                     }}
                     disabled={composioStatus === 'checking' || !composioKey.trim()}
                     className={`px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
@@ -459,6 +467,11 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                      composioStatus === 'offline' ? 'Failed' : 'Test'}
                   </button>
                 </div>
+                {composioError && composioStatus === 'offline' && (
+                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                    <p className="text-[10px] text-red-400 break-all">{composioError}</p>
+                  </div>
+                )}
                 <p className="text-[10px] text-handoff-muted">
                   Get your API key from <a href="https://app.composio.dev/settings" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">app.composio.dev</a>. Use the <span className="text-purple-400">Connect Hub</span> to browse and connect apps.
                 </p>

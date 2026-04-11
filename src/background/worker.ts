@@ -682,8 +682,8 @@ async function handleMessage(
       try {
         const composio = getComposioClient();
         await composio.loadConfig();
-        const available = await composio.healthCheck();
-        return { success: true, available };
+        const result = await composio.healthCheck();
+        return { success: true, available: result.ok, error: result.error };
       } catch (e) {
         console.error('[Worker] COMPOSIO_HEALTH_CHECK error:', e);
         return { success: true, available: false, error: e instanceof Error ? e.message : String(e) };
