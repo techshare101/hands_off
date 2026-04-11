@@ -27,6 +27,7 @@ import { mcpClient } from '../agent/mcpClient';
 import { a2aProtocol } from '../agent/a2aProtocol';
 import { getComposioClient } from '../agent/composioClient';
 import { capabilitySyncAdapter } from '../agent/capabilitySyncAdapter';
+import { telemetry } from '../agent/telemetryService';
 import { keepAlive } from './keepAlive';
 
 // LLM Client interface (all clients implement this)
@@ -97,6 +98,7 @@ async function handleMessage(
 
   switch (message.type) {
     case 'START_TASK': {
+      telemetry.track('task_start', { task: (message.payload as { task: string }).task });
       const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       currentTaskId = taskId;
       keepAlive.startTask(taskId, {
@@ -749,6 +751,22 @@ async function handleMessage(
     case 'RESUME_FROM_CHECKPOINT':
       return { success: true, message: 'Checkpoint acknowledged' };
 
+    // ── Telemetry ────────────────────────────────────────────────
+
+    case 'TELEMETRY_GET_METRICS':
+      return { success: true, metrics: await telemetry.getMetrics() };
+
+    case 'TELEMETRY_GET_BUFFER':
+      return { success: true, buffer: await telemetry.getBuffer() };
+
+    case 'TELEMETRY_FLUSH':
+      await telemetry.flush();
+      return { success: true };
+
+    case 'TELEMETRY_RESET':
+      await telemetry.reset();
+      return { success: true };
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -767,6 +785,11 @@ try {
     console.log('[Worker] CapabilitySyncAdapter initialized');
   }).catch((err: unknown) => {
     console.warn('[Worker] CapabilitySyncAdapter init failed (non-critical):', err);
+  });
+  telemetry.init().then(() => {
+    console.log('[Worker] Telemetry initialized');
+  }).catch((err: unknown) => {
+    console.warn('[Worker] Telemetry init failed (non-critical):', err);
   });
 } catch (e) {
   console.warn('[Worker] Startup init error:', e);
@@ -880,11 +903,13 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
     },
     
     onComplete: (summary: string) => {
+      telemetry.track('task_complete', { task: payload.task, summary });
       notifySidePanel('AGENT_COMPLETE', { summary });
       currentAgent = null;
     },
     
     onError: (error: string) => {
+      telemetry.track('task_error', { task: payload.task, error });
       notifySidePanel('AGENT_ERROR', { error });
       currentAgent = null;
     },

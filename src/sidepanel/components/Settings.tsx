@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Key, Save, Check, Eye, Brain, Globe, Video, FileDown, Plug, Plus, Trash2, Share2, Sparkles, Boxes } from 'lucide-react';
+import TelemetryDashboard from './TelemetryDashboard';
 import { OPENROUTER_VISION_MODELS } from '../../agent/openRouterClient';
 import { ROUTELLM_MODELS } from '../../agent/routeLLMClient';
 import { OPENAI_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, QWEN_MODELS, MISTRAL_MODELS } from '../../agent/openAICompatClient';
@@ -45,7 +46,7 @@ const PROVIDER_META: Record<LLMProvider, ProviderMeta> = {
   routellm:   { storageKey: 'routeLLMApiKey',  modelStorageKey: 'routeLLMModel',  placeholder: '...', link: 'https://routellm.ai', linkLabel: 'RouteLLM', models: ROUTELLM_MODELS },
 };
 
-type SettingsTab = 'general' | 'connections' | 'advanced';
+type SettingsTab = 'general' | 'connections' | 'advanced' | 'telemetry';
 
 export default function Settings({ isOpen, onClose }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -218,7 +219,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
 
         {/* Tab Navigation */}
         <div className="flex border-b border-handoff-dark">
-          {([['general', 'General'], ['connections', 'Connections'], ['advanced', 'Advanced']] as const).map(([id, label]) => (
+          {([['general', 'General'], ['connections', 'Connections'], ['advanced', 'Advanced'], ['telemetry', 'Telemetry']] as const).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
@@ -1064,6 +1065,11 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
           </div>
 
           </>)}
+
+          {/* ═══════════════ TELEMETRY TAB ═══════════════ */}
+          {activeTab === 'telemetry' && (
+            <TelemetryDashboard />
+          )}
 
           {/* Save button — always visible */}
           <button
