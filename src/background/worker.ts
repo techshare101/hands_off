@@ -26,6 +26,7 @@ import type { A2UIWidgetPayload, A2UIUserAction } from '../agent/a2ui';
 import { mcpClient } from '../agent/mcpClient';
 import { a2aProtocol } from '../agent/a2aProtocol';
 import { getComposioClient } from '../agent/composioClient';
+import { capabilitySyncAdapter } from '../agent/capabilitySyncAdapter';
 import { keepAlive } from './keepAlive';
 
 // LLM Client interface (all clients implement this)
@@ -762,8 +763,13 @@ try {
   }).catch((err: unknown) => {
     console.warn('[Worker] Keep-alive init failed (non-critical):', err);
   });
+  capabilitySyncAdapter.init().then(() => {
+    console.log('[Worker] CapabilitySyncAdapter initialized');
+  }).catch((err: unknown) => {
+    console.warn('[Worker] CapabilitySyncAdapter init failed (non-critical):', err);
+  });
 } catch (e) {
-  console.warn('[Worker] Keep-alive init error:', e);
+  console.warn('[Worker] Startup init error:', e);
 }
 
 chrome.runtime.onMessageExternal?.addListener(

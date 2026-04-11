@@ -264,6 +264,21 @@ class MCPClientEngine {
     return this.getAllCachedTools().find(t => t.name === toolName);
   }
 
+  // ── Virtual Tool Registration (used by CapabilitySyncAdapter) ─────
+
+  registerVirtualTool(tool: MCPTool): void {
+    const existing = this.toolCache.get(tool.serverId) || [];
+    // Avoid duplicates
+    if (!existing.some(t => t.name === tool.name)) {
+      existing.push(tool);
+      this.toolCache.set(tool.serverId, existing);
+    }
+  }
+
+  removeServerTools(serverId: string): void {
+    this.toolCache.delete(serverId);
+  }
+
   // ── Agent Prompt Integration ───────────────────────────────────────
 
   formatToolsForPrompt(): string {
