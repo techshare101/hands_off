@@ -7,20 +7,23 @@ import ActionFeed from './components/ActionFeed';
 import Controls from './components/Controls';
 import Settings from './components/Settings';
 import LearningPanel from './components/LearningPanel';
+import ConnectHub from './components/ConnectHub';
 
 export default function App() {
   const { status, currentTask } = useAgentStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showLearning, setShowLearning] = useState(false);
+  const [showConnectHub, setShowConnectHub] = useState(false);
   
   // Listen for messages from background worker
   useAgentMessages();
 
   return (
     <div className="flex flex-col h-screen bg-handoff-dark">
-      <Header onSettingsClick={() => setShowSettings(true)} onLearningClick={() => setShowLearning(true)} />
+      <Header onSettingsClick={() => setShowSettings(true)} onLearningClick={() => setShowLearning(true)} onConnectHubClick={() => setShowConnectHub(true)} />
       <Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
       <LearningPanel isOpen={showLearning} onClose={() => setShowLearning(false)} />
+      <ConnectHub isOpen={showConnectHub} onClose={() => setShowConnectHub(false)} />
       
       <main className="flex-1 overflow-hidden flex flex-col">
         <TaskInput />

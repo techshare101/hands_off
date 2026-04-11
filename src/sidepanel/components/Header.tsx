@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Zap, Settings, Sparkles } from 'lucide-react';
+import { Zap, Settings, Sparkles, Plug } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 
 interface HeaderProps {
   onSettingsClick: () => void;
   onLearningClick?: () => void;
+  onConnectHubClick?: () => void;
 }
 
-export default function Header({ onSettingsClick, onLearningClick }: HeaderProps) {
+export default function Header({ onSettingsClick, onLearningClick, onConnectHubClick }: HeaderProps) {
   const { status, tasksRemaining } = useAgentStore();
   const [provider, setProvider] = useState<string>('gemini');
   const [model, setModel] = useState<string>('');
@@ -65,6 +66,16 @@ export default function Header({ onSettingsClick, onLearningClick }: HeaderProps
         <div className="text-xs text-handoff-muted bg-handoff-surface px-2 py-1 rounded" title={`Provider: ${provider}`}>
           {provider === 'gemini' ? '🔷' : provider === 'openrouter' ? '🌐' : '🛤️'} {model}
         </div>
+
+        {onConnectHubClick && (
+          <button 
+            onClick={onConnectHubClick}
+            className="p-1.5 hover:bg-handoff-surface rounded-lg transition-colors"
+            title="Connect Hub"
+          >
+            <Plug className="w-4 h-4 text-purple-400" />
+          </button>
+        )}
 
         {onLearningClick && (
           <button 
