@@ -468,8 +468,11 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                   </button>
                 </div>
                 {composioError && composioStatus === 'offline' && (
-                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 space-y-1">
                     <p className="text-[10px] text-red-400 break-all">{composioError}</p>
+                    {composioError.includes('401') && (
+                      <p className="text-[10px] text-red-300">Your API key is invalid or expired. Generate a new one at <a href="https://app.composio.dev/settings" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">app.composio.dev/settings</a></p>
+                    )}
                   </div>
                 )}
                 <p className="text-[10px] text-handoff-muted">
