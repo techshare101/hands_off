@@ -306,6 +306,15 @@ export class AgentCore {
       }
       
       if (!screenshotResult.success) {
+        // Check if we're on a restricted page
+        let currentUrl = '';
+        try { currentUrl = (await chrome.tabs.get(this.config.tabId)).url || ''; } catch { /* ignore */ }
+        if (currentUrl.startsWith('chrome://') || currentUrl.startsWith('chrome-extension://') || currentUrl.startsWith('about:')) {
+          console.error('[AgentCore] On restricted page:', currentUrl);
+          this.emitStep('error', `Cannot operate on restricted page (${currentUrl}). Please open a regular website.`);
+          this.stateMachine.send({ type: 'ERROR', message: `Cannot operate on ${currentUrl} — open a regular website first` });
+          break;
+        }
         console.error('[AgentCore] Screenshot failed after retries:', screenshotResult.error);
         this.stateMachine.send({ type: 'ERROR', message: 'Unable to see page after retries: ' + (screenshotResult.error || 'unknown') });
         break;
@@ -929,8 +938,13 @@ export class AgentCore {
         return this.tools.execute('press', { key: action.key });
       case 'wait':
         return this.tools.execute('wait', { ms: action.duration || 1000 });
-      case 'navigate':
-        return this.tools.execute('navigate', { url: action.url });
+      case 'navigate': {
+        const url = action.url || '';
+        if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('about:')) {
+          return { success: false, error: `Cannot navigate to restricted URL: ${url}. Use a regular website URL instead.` };
+        }
+        return this.tools.execute('navigate', { url });
+      }
       default:
         return { success: false, error: `Unknown action type: ${action.type}` };
     }
