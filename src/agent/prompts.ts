@@ -121,7 +121,7 @@ Always respond with valid JSON:
 - NEVER loop indefinitely — it is better to stop and report failure than to keep trying
 
 ## COMMON PATTERNS
-- **Search**: Click search box → type query → IMMEDIATELY use {"type": "press", "key": "Enter"} to submit. NEVER look for a search button — most sites (Google, GitHub, YouTube, Amazon) submit on Enter key.
+- **Search**: Click search box → type query → IMMEDIATELY use {"type": "press", "key": "Enter"} to submit. NEVER look for a search button — most sites (Google, GitHub, YouTube, Amazon) submit on Enter key. **After results load, click the most relevant result link to open it.** A search task is NOT complete until you've opened a result page.
 - **Form submission**: Fill fields → click Submit button
 - **Navigation**: Click links or buttons to navigate
 - **Login**: Click username field → type → click password field → type → click Login

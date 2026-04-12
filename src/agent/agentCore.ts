@@ -337,17 +337,10 @@ export class AgentCore {
       
       this.usageTracker.screenshotsThisTask++;
 
-      // No-progress detection: hash the screenshot to detect if page is unchanged
+      // No-progress detection: track identical screenshots
+      // Only triggers hard stop after actions are attempted but nothing changes
       const screenshotHash = screenshot.length.toString() + screenshot.slice(-200);
-      if (screenshotHash === this.lastScreenshotHash) {
-        this.consecutiveNoProgress++;
-        if (this.consecutiveNoProgress >= 5) {
-          console.error(`[AgentCore] HARD STOP: Page unchanged for ${this.consecutiveNoProgress} iterations — agent is stuck`);
-          this.emitStep('error', `Agent stuck: page has not changed for ${this.consecutiveNoProgress} iterations. Stopping to prevent infinite loop.`);
-          this.stateMachine.send({ type: 'ERROR', message: `Stuck in loop — page unchanged for ${this.consecutiveNoProgress} iterations` });
-          break;
-        }
-      } else {
+      if (screenshotHash !== this.lastScreenshotHash) {
         this.consecutiveNoProgress = 0;
       }
       this.lastScreenshotHash = screenshotHash;
@@ -855,6 +848,18 @@ export class AgentCore {
       // Step 8: Verify
       this.emitStep('verifying', 'Verifying action result...');
       await this.sleep(1000); // Let page update
+
+      // No-progress check: if page hasn't changed after action, count it
+      if (this.lastScreenshotHash === (screenshot.length.toString() + screenshot.slice(-200))) {
+        this.consecutiveNoProgress++;
+        if (this.consecutiveNoProgress >= 8) {
+          console.error(`[AgentCore] HARD STOP: ${this.consecutiveNoProgress} actions executed but page never changed`);
+          this.emitStep('error', `Agent stuck: ${this.consecutiveNoProgress} actions had no effect on the page. Stopping.`);
+          this.stateMachine.send({ type: 'ERROR', message: `Stuck: ${this.consecutiveNoProgress} actions with no page change` });
+          break;
+        }
+      }
+
       this.stateMachine.send({ type: 'VERIFICATION_SUCCESS' });
     }
 
