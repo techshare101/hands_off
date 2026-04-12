@@ -499,6 +499,8 @@ export class AgentCore {
       const response = analysis.response;
 
       // Step 4: Decision Router — decide HOW to fulfill this step
+      // Prefer API/tool execution over browser when a connection exists
+      let __routeHandled = false;
       try {
         const routeDecision = await decisionRouter.decideRoute({
           task: this.config.task,
@@ -511,11 +513,67 @@ export class AgentCore {
           hasActiveWidgets: false,
         });
         console.log('[AgentCore] Route decision:', routeDecision.route);
+
+        // Execute non-browser routes directly
+        if (routeDecision.route === 'mcp_tool') {
+          const mcpResult = await this.executeMCPRoute(
+            routeDecision.serverId,
+            routeDecision.toolName,
+            routeDecision.args,
+          );
+          if (mcpResult.success) {
+            __routeHandled = true;
+            decisionRouter.markRouteSuccess(true);
+            this.emitStep('executing', `Tool executed: ${routeDecision.toolName} → ${JSON.stringify(mcpResult.data).slice(0, 120)}`);
+            executionMemory.recordAction(
+              { type: 'navigate', url: `mcp://${routeDecision.serverId}/${routeDecision.toolName}` } as ActionSchema,
+              pageUrl, true, 0, { visualContext: `Tool route: ${routeDecision.toolName}` },
+            );
+            this.retryCount = 0;
+            this.lastError = null;
+            this.correctionContext = `Tool "${routeDecision.toolName}" returned: ${JSON.stringify(mcpResult.data).slice(0, 300)}. Use this result to continue.`;
+            await this.sleep(500);
+            continue; // Next iteration — agent sees tool result via correctionContext
+          } else {
+            decisionRouter.markRouteSuccess(false);
+            console.warn(`[AgentCore] MCP route failed (${routeDecision.toolName}), falling back to browser:`, mcpResult.error);
+          }
+        }
+
+        if (routeDecision.route === 'a2a_delegate') {
+          try {
+            const a2aResult = await a2aProtocol.sendTask(
+              routeDecision.agentId,
+              routeDecision.intent,
+              routeDecision.description,
+              routeDecision.input,
+            );
+            if (a2aResult) {
+              __routeHandled = true;
+              decisionRouter.markRouteSuccess(true);
+              this.emitStep('executing', `Delegated to agent: ${routeDecision.agentId}`);
+              this.correctionContext = `A2A delegation result: ${JSON.stringify(a2aResult).slice(0, 300)}`;
+              await this.sleep(500);
+              continue;
+            }
+          } catch (e) {
+            decisionRouter.markRouteSuccess(false);
+            console.warn('[AgentCore] A2A delegation failed, falling back to browser:', e);
+          }
+        }
+
+        if (routeDecision.route === 'wait_for_user') {
+          this.stateMachine.send({ type: 'NEED_INPUT', question: routeDecision.question });
+          this.emitStep('waiting', routeDecision.question);
+          await this.sleep(2000);
+          continue;
+        }
+
       } catch (e) {
         console.warn('[AgentCore] Decision routing failed, using default browser action:', e);
       }
 
-      // Step 4: Check if complete
+      // Step 4b: Check if complete
       if (response.isComplete) {
         // Complete execution trace as successful
         const trace = await executionMemory.completeTrace(true);
@@ -768,6 +826,46 @@ export class AgentCore {
 
     if (iteration >= maxIterations) {
       this.config.onError('Maximum iterations reached. Task may be incomplete.');
+    }
+  }
+
+  private async executeMCPRoute(
+    serverId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+    try {
+      // Zapier NLA tools: route to zapierNLA client
+      if (toolName.startsWith('zapier_nla_')) {
+        const actionId = toolName.replace('zapier_nla_', '');
+        const { zapierNLA } = await import('./zapierNLA');
+        const result = await zapierNLA.executeAction(actionId, args);
+        if (result.status === 'success') {
+          return { success: true, data: result.result };
+        }
+        return { success: false, error: result.error || 'Zapier execution failed' };
+      }
+
+      // Connect Hub virtual tools (connecthub_* servers) — delegate to background worker
+      if (serverId.startsWith('connecthub_')) {
+        const appId = serverId.replace('connecthub_', '');
+        const result = await chrome.runtime.sendMessage({
+          type: 'CONNECTHUB_EXECUTE_TOOL',
+          payload: { appId, toolName, args },
+        });
+        if (result?.success) {
+          return { success: true, data: result.data || result.result };
+        }
+        return { success: false, error: result?.error || 'Connect Hub tool execution failed' };
+      }
+
+      // Real MCP servers: use mcpClient directly
+      const result = await mcpClient.callTool(serverId, toolName, args);
+      return { success: true, data: result };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'MCP tool call failed';
+      console.error(`[AgentCore] MCP route execution error (${toolName}):`, e);
+      return { success: false, error: msg };
     }
   }
 

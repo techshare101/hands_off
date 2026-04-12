@@ -48,13 +48,23 @@ const WIDGET_INTENT_PATTERNS: { pattern: RegExp; template?: keyof typeof A2UI_TE
 ];
 
 const MCP_INTENT_PATTERNS: { pattern: RegExp; toolHint: string }[] = [
-  { pattern: /(?:stripe|payment|charge|invoice)/i, toolHint: 'stripe' },
+  // Connect Hub apps — these match virtual tools registered by CapabilitySyncAdapter
+  { pattern: /(?:zapier|zap|automate|automation|trigger\s+zap)/i, toolHint: 'zapier' },
+  { pattern: /(?:notion|page|workspace|wiki|knowledge\s+base)/i, toolHint: 'notion' },
+  { pattern: /(?:google\s+sheet|spreadsheet|csv|cells)/i, toolHint: 'sheet' },
+  { pattern: /(?:linear|issue|sprint|backlog|ticket)/i, toolHint: 'linear' },
+  { pattern: /(?:hugging\s*face|hf|object\s+detect|classify|embedding|ocr)/i, toolHint: 'huggingface' },
+  // Communication
   { pattern: /(?:slack|message|channel|notify)/i, toolHint: 'slack' },
-  { pattern: /(?:github|repo|pull\s+request|commit)/i, toolHint: 'github' },
+  { pattern: /(?:email|send\s+mail|inbox|gmail)/i, toolHint: 'email' },
+  // Development
+  { pattern: /(?:github|repo|pull\s+request|commit|pr\b)/i, toolHint: 'github' },
+  // Data & Finance
+  { pattern: /(?:stripe|payment|charge|invoice)/i, toolHint: 'stripe' },
   { pattern: /(?:database|query|sql|record)/i, toolHint: 'database' },
-  { pattern: /(?:email|send\s+mail|inbox)/i, toolHint: 'email' },
-  { pattern: /(?:calendar|event|meeting)/i, toolHint: 'calendar' },
   { pattern: /(?:salesforce|crm|lead|contact)/i, toolHint: 'salesforce' },
+  // Generic
+  { pattern: /(?:calendar|event|meeting|schedule)/i, toolHint: 'calendar' },
   { pattern: /(?:api|endpoint|webhook|rest)/i, toolHint: 'api' },
 ];
 
