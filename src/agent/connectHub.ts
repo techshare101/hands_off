@@ -265,7 +265,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     name: 'Zapier',
     icon: '⚡',
     category: 'automation',
-    description: 'Trigger Zaps and connect 5000+ apps',
+    description: 'Connect to 7,000+ apps via your exposed Zap actions',
     methods: ['api'],
     defaults: {
       api: {
@@ -273,7 +273,7 @@ export const APP_REGISTRY: AppDefinition[] = [
         keyPlaceholder: 'Your Zapier NLA API Key',
         keyLink: 'https://nla.zapier.com/credentials/',
         keyLabel: 'NLA API Key',
-        description: 'Natural Language Actions API — trigger any Zap.',
+        description: 'Natural Language Actions API — expose Zaps as AI-callable tools.',
         tools: ['trigger_zap', 'list_actions'],
       },
     },
@@ -442,9 +442,23 @@ export class ConnectionManager {
     }
 
     if (method === 'api') {
-      // For API keys, just verify non-empty
       const key = config.apiKey || config.token;
-      return !!key && key.length > 5;
+      if (!key || key.length < 5) return false;
+
+      // Live validation for Zapier NLA
+      if (app.id === 'zapier') {
+        try {
+          const res = await fetch('https://nla.zapier.com/api/v1/exposed/', {
+            headers: { 'x-api-key': key, Accept: 'application/json' },
+          });
+          return res.ok;
+        } catch {
+          return false;
+        }
+      }
+
+      // Generic API key: just verify non-empty and long enough
+      return true;
     }
 
     return false;

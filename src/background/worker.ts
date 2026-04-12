@@ -28,6 +28,7 @@ import { a2aProtocol } from '../agent/a2aProtocol';
 import { getComposioClient } from '../agent/composioClient';
 import { capabilitySyncAdapter } from '../agent/capabilitySyncAdapter';
 import { telemetry } from '../agent/telemetryService';
+import { zapierNLA } from '../agent/zapierNLA';
 import { keepAlive } from './keepAlive';
 
 // LLM Client interface (all clients implement this)
@@ -750,6 +751,20 @@ async function handleMessage(
 
     case 'RESUME_FROM_CHECKPOINT':
       return { success: true, message: 'Checkpoint acknowledged' };
+
+    // ── Zapier NLA ──────────────────────────────────────────────
+
+    case 'ZAPIER_LIST_ACTIONS':
+      return { success: true, actions: await zapierNLA.listActions() };
+
+    case 'ZAPIER_EXECUTE_ACTION': {
+      const { actionId, params, instructions } = message.payload as {
+        actionId: string;
+        params: Record<string, unknown>;
+        instructions?: string;
+      };
+      return { success: true, result: await zapierNLA.executeAction(actionId, params, instructions) };
+    }
 
     // ── Telemetry ────────────────────────────────────────────────
 

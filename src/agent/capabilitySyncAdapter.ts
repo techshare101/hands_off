@@ -5,6 +5,7 @@
 import { mcpClient } from './mcpClient';
 import { getConnectionManager, type AppDefinition } from './connectHub';
 import { getComposioClient } from './composioClient';
+import { zapierNLA } from './zapierNLA';
 
 const COMPOSIO_MCP_SERVER_ID = '__composio__';
 
@@ -78,6 +79,12 @@ class CapabilitySyncAdapterEngine {
           continue;
         }
 
+        // Zapier: dynamically discover exposed NLA actions
+        if (app.id === 'zapier') {
+          await this.syncZapierActions(conn.config.apiKey || conn.config.token || '');
+          continue;
+        }
+
         // For API and A2A connections, register tools as virtual MCP tools
         // so the router's pattern matching can find them
         for (const toolName of toolNames) {
@@ -141,6 +148,58 @@ class CapabilitySyncAdapterEngine {
       console.log(`[CapabilitySyncAdapter] Synced ${connectedTools.length} Composio tools from ${toolkitSlugs.length} accounts`);
     } catch (e) {
       console.error('[CapabilitySyncAdapter] Composio sync failed:', e);
+    }
+  }
+
+  // Fetch exposed Zapier NLA actions and register each as a virtual tool
+  private async syncZapierActions(apiKey: string): Promise<void> {
+    if (!apiKey) return;
+
+    try {
+      const actions = await zapierNLA.listActions(apiKey);
+
+      if (actions.length === 0) {
+        // Register static fallback tools so routing still works
+        mcpClient.registerVirtualTool({
+          serverId: 'connecthub_zapier',
+          serverName: 'Zapier',
+          name: 'trigger_zap',
+          description: 'Zapier: Trigger a Zap action (no exposed actions found — configure at nla.zapier.com)',
+          inputSchema: {},
+        });
+        return;
+      }
+
+      for (const action of actions) {
+        // Build an input schema from NLA param descriptions
+        const properties: Record<string, { type: string; description: string }> = {};
+        for (const [param, desc] of Object.entries(action.params)) {
+          properties[param] = { type: 'string', description: desc };
+        }
+
+        mcpClient.registerVirtualTool({
+          serverId: 'connecthub_zapier',
+          serverName: 'Zapier',
+          name: `zapier_nla_${action.id}`,
+          description: `[Zapier] ${action.description}`,
+          inputSchema: {
+            type: 'object',
+            properties,
+          },
+        });
+      }
+
+      console.log(`[CapabilitySyncAdapter] Synced ${actions.length} Zapier NLA actions`);
+    } catch (e) {
+      console.error('[CapabilitySyncAdapter] Zapier sync failed:', e);
+      // Register static fallback so Zapier still shows as connected
+      mcpClient.registerVirtualTool({
+        serverId: 'connecthub_zapier',
+        serverName: 'Zapier',
+        name: 'trigger_zap',
+        description: 'Zapier: Trigger a Zap (action discovery failed)',
+        inputSchema: {},
+      });
     }
   }
 
