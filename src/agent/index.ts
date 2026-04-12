@@ -57,6 +57,9 @@ export type { HFConfig, DetectedObject, BoundingBox, OCRWord, EmbeddingResult, C
 export { hfVision } from './hfVision';
 export type { UIElement, PageAnalysis } from './hfVision';
 
+export { molmoVision } from './molmoVision';
+export type { GroundingResult, MolmoConfig } from './molmoVision';
+
 export { hfEmbeddings } from './hfEmbeddings';
 export type { SemanticMatch } from './hfEmbeddings';
 

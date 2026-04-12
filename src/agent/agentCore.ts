@@ -20,6 +20,7 @@ import { decisionRouter } from './decisionRouter';
 import { mcpClient } from './mcpClient';
 import { a2ui } from './a2ui';
 import { a2aProtocol } from './a2aProtocol';
+import { molmoVision } from './molmoVision';
 
 export interface AgentConfig {
   tabId: number;
@@ -666,6 +667,24 @@ export class AgentCore {
 
       // Step 7: Execute action (with execution memory tracking)
       this.stateMachine.send({ type: 'ACTION_APPROVED' });
+
+      // Molmo grounding: if this is a click and confidence is low, use Molmo to verify coordinates
+      if (response.action.type === 'click' && response.action.target) {
+        try {
+          const resolved = await molmoVision.resolveClickTarget(
+            { x: response.action.x!, y: response.action.y!, confidence: response.confidence, target: response.action.target },
+            screenshot,
+          );
+          if (resolved.overridden) {
+            response.action.x = resolved.x;
+            response.action.y = resolved.y;
+            this.emitStep('learning', `Molmo grounding: "${response.action.target}" → (${resolved.x}, ${resolved.y})`);
+          }
+        } catch (e) {
+          console.warn('[AgentCore] Molmo grounding failed, using Gemini coords:', e);
+        }
+      }
+
       this.emitStep('executing', `Executing: ${response.action.type}${response.action.target ? ` on "${response.action.target}"` : ''}`, undefined, undefined, undefined);
 
       const actionStartTime = Date.now();

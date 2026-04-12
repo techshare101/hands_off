@@ -68,6 +68,8 @@ export const HF_MODELS = {
   embeddings: 'BAAI/bge-small-en-v1.5',
   // Zero-shot classification — classify pages/tasks
   classification: 'facebook/bart-large-mnli',
+  // Vision-language model — UI element grounding (pointing)
+  molmo: 'allenai/Molmo-7B-D-0924',
 };
 
 // ── HF Inference Client ─────────────────────────────────────────────
@@ -430,6 +432,119 @@ class HFInferenceClient {
       byteArrays[i] = byteChars.charCodeAt(i);
     }
     return new Blob([byteArrays], { type: 'image/png' });
+  }
+
+  // ── Chat Completion with Image (VLM) ─────────────────────────────
+  // Uses HF's OpenAI-compatible /v1/chat/completions endpoint
+  // Works with Molmo, LLaVA, and other vision-language models
+
+  async chatCompletionWithImage(
+    prompt: string,
+    imageBase64: string,
+    options: { model?: string; maxTokens?: number; temperature?: number; timeout?: number } = {}
+  ): Promise<{
+    success: boolean;
+    text?: string;
+    error?: string;
+    latencyMs?: number;
+  }> {
+    if (!this.initialized) await this.init();
+    if (!this.enabled || !this.token) {
+      return { success: false, error: 'HF not enabled or no API token' };
+    }
+
+    const model = options.model || HF_MODELS.molmo;
+    const startTime = Date.now();
+
+    // Rate limiting
+    const now = Date.now();
+    const timeSinceLast = now - this.lastRequestTime;
+    if (timeSinceLast < this.minRequestInterval) {
+      await new Promise(r => setTimeout(r, this.minRequestInterval - timeSinceLast));
+    }
+
+    // Strip data URI prefix if present
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+
+    const body = {
+      model,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${cleanBase64}` } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+      max_tokens: options.maxTokens || 256,
+      temperature: options.temperature ?? 0.1,
+    };
+
+    // Retry loop for HF cold starts (503)
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeout = options.timeout || 60000;
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        const response = await fetch(
+          `https://api-inference.huggingface.co/models/${model}/v1/chat/completions`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${this.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          },
+        );
+
+        clearTimeout(timeoutId);
+        this.lastRequestTime = Date.now();
+        this.requestCount++;
+
+        if (response.status === 503) {
+          // Model is loading — wait and retry
+          const waitMs = attempt * 3000;
+          console.log(`[HF] Model ${model} loading, retry ${attempt}/${maxAttempts} in ${waitMs}ms`);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+
+        if (!response.ok) {
+          const errText = await response.text();
+          return {
+            success: false,
+            error: `HF chat API ${response.status}: ${errText.slice(0, 200)}`,
+            latencyMs: Date.now() - startTime,
+          };
+        }
+
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content || '';
+
+        return {
+          success: true,
+          text,
+          latencyMs: Date.now() - startTime,
+        };
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return { success: false, error: 'HF chat request timed out', latencyMs: Date.now() - startTime };
+        }
+        if (attempt === maxAttempts) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'HF chat completion failed',
+            latencyMs: Date.now() - startTime,
+          };
+        }
+        await new Promise(r => setTimeout(r, attempt * 2000));
+      }
+    }
+
+    return { success: false, error: 'HF chat completion failed after retries', latencyMs: Date.now() - startTime };
   }
 
   getStats(): { requestCount: number; lastRequestTime: number; enabled: boolean; hasToken: boolean } {
