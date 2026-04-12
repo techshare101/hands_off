@@ -307,4 +307,105 @@ export const OPENROUTER_VISION_MODELS = [
   { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku', provider: 'Anthropic' },
   { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
   { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI' },
+  { id: 'allenai/molmo-2-8b', name: 'Molmo 2 8B (Vision Grounding)', provider: 'AllenAI' },
 ];
+
+export interface GroundingResult {
+  x: number;
+  y: number;
+  confidence: number;
+  raw: string;
+  latencyMs: number;
+}
+
+/**
+ * Vision grounding using Molmo on OpenRouter
+ * Returns pixel coordinates for UI elements
+ */
+export async function groundWithMolmo(
+  imageBase64: string,
+  targetDescription: string,
+  apiKey: string,
+  viewportWidth = 1280,
+  viewportHeight = 800,
+): Promise<GroundingResult | null> {
+  const startTime = Date.now();
+  const MOLMO_MODEL = 'allenai/molmo-2-8b';
+
+  // Strip data URI prefix if present
+  const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  const dataUrl = `data:image/png;base64,${cleanBase64}`;
+
+  const prompt = `Point to the "${targetDescription}" element on this webpage screenshot. Return the coordinates as <point x="X" y="Y" alt="${targetDescription}"> where X and Y are percentage positions (0-100) relative to the image dimensions.`;
+
+  try {
+    const response = await fetch(OPENROUTER_API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://handoff-extension.local',
+        'X-Title': 'HandOff Chrome Extension',
+      },
+      body: JSON.stringify({
+        model: MOLMO_MODEL,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        max_tokens: 256,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[OpenRouter] Molmo grounding failed:', response.status, error);
+      return null;
+    }
+
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content || '';
+
+    // Parse point tag: <point x="52.3" y="34.1" alt="...">
+    const attrMatch = raw.match(/<point\s+x="([\d.]+)"\s+y="([\d.]+)"/i);
+    if (attrMatch) {
+      const xPct = parseFloat(attrMatch[1]);
+      const yPct = parseFloat(attrMatch[2]);
+      // Convert percentages to pixels
+      const x = Math.round((xPct / 100) * viewportWidth);
+      const y = Math.round((yPct / 100) * viewportHeight);
+      return { x, y, confidence: 0.92, raw, latencyMs: Date.now() - startTime };
+    }
+
+    // Try loose coordinate formats
+    const looseMatch = raw.match(/x[:\s=]*(\d+)[,\s]+y[:\s=]*(\d+)/i) ||
+                       raw.match(/\((\d+)\s*,\s*(\d+)\)/);
+    if (looseMatch) {
+      const x = parseInt(looseMatch[1], 10);
+      const y = parseInt(looseMatch[2], 10);
+      // If values are 0-100, treat as percentages
+      if (x <= 100 && y <= 100) {
+        return {
+          x: Math.round((x / 100) * viewportWidth),
+          y: Math.round((y / 100) * viewportHeight),
+          confidence: 0.7,
+          raw,
+          latencyMs: Date.now() - startTime,
+        };
+      }
+      return { x, y, confidence: 0.7, raw, latencyMs: Date.now() - startTime };
+    }
+
+    console.warn('[OpenRouter] Could not parse coordinates from Molmo:', raw.slice(0, 200));
+    return null;
+  } catch (err) {
+    console.error('[OpenRouter] Molmo grounding error:', err);
+    return null;
+  }
+}

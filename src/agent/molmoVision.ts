@@ -1,12 +1,12 @@
-// 🎯 MOLMO VISION — UI element grounding via Hugging Face Inference API
+// 🎯 MOLMO VISION — UI element grounding via OpenRouter (Molmo 2)
 // Uses Molmo's point-token training to return pixel-precise coordinates
 // for UI elements that Gemini's vision may miss or mislocate.
 //
 // Architecture: Gemini reasons → Molmo grounds → Agent clicks
 // Molmo only fires on low-confidence clicks (~10-20% of actions),
-// keeping HF costs near zero during normal operation.
+// keeping costs near zero during normal operation.
 
-import { getHFClient, HF_MODELS } from './hfClient';
+import { groundWithMolmo } from './openRouterClient';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ export interface MolmoConfig {
 }
 
 const DEFAULT_CONFIG: MolmoConfig = {
-  model: HF_MODELS.molmo,
+  model: 'allenai/molmo-2-8b',
   confidenceThreshold: 0.98, // Gemini self-reports ~0.9 even when wrong; run Molmo on nearly all clicks
   enabled: true,
   maxTokens: 256,
@@ -35,62 +35,6 @@ const DEFAULT_CONFIG: MolmoConfig = {
 };
 
 const STORAGE_KEY = 'molmo_vision_config';
-
-// ── Coordinate Parsers ──────────────────────────────────────────────
-// Molmo outputs coordinates in several possible formats depending on
-// the model version and prompt. We handle all known variants.
-
-function parsePointTag(raw: string): { x: number; y: number } | null {
-  // Format: <point x="52.3" y="34.1" alt="...">...</point>
-  const attrMatch = raw.match(/<point\s+x="([\d.]+)"\s+y="([\d.]+)"/i);
-  if (attrMatch) {
-    return { x: parseFloat(attrMatch[1]), y: parseFloat(attrMatch[2]) };
-  }
-
-  // Format: <point>52.3, 34.1</point>
-  const innerMatch = raw.match(/<point>\s*([\d.]+)\s*,\s*([\d.]+)\s*<\/point>/i);
-  if (innerMatch) {
-    return { x: parseFloat(innerMatch[1]), y: parseFloat(innerMatch[2]) };
-  }
-
-  return null;
-}
-
-function parseLooseCoords(raw: string): { x: number; y: number } | null {
-  // Format: "x: 123, y: 456" or "(123, 456)" or "x=123 y=456"
-  const patterns = [
-    /x[:\s=]*(\d+)[,\s]+y[:\s=]*(\d+)/i,
-    /\((\d+)\s*,\s*(\d+)\)/,
-    /coordinates?[:\s]*(\d+)\s*,\s*(\d+)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    if (match) {
-      return { x: parseInt(match[1], 10), y: parseInt(match[2], 10) };
-    }
-  }
-
-  return null;
-}
-
-// Molmo outputs percentages (0-100) of image dimensions.
-// Convert to pixel coordinates given the viewport size.
-function percentToPixels(
-  point: { x: number; y: number },
-  viewportWidth: number,
-  viewportHeight: number,
-): { x: number; y: number } {
-  // If values are 0-100, treat as percentages
-  if (point.x <= 100 && point.y <= 100) {
-    return {
-      x: Math.round((point.x / 100) * viewportWidth),
-      y: Math.round((point.y / 100) * viewportHeight),
-    };
-  }
-  // Already pixel values
-  return { x: Math.round(point.x), y: Math.round(point.y) };
-}
 
 // ── Molmo Vision Client ─────────────────────────────────────────────
 
@@ -129,8 +73,14 @@ class MolmoVisionClient {
   async isEnabled(): Promise<boolean> {
     if (!this.initialized) await this.init();
     if (!this.config.enabled) return false;
-    const hf = getHFClient();
-    return hf.isEnabled();
+    // Check for OpenRouter API key
+    const result = await chrome.storage.local.get('openRouterApiKey');
+    return !!result.openRouterApiKey;
+  }
+
+  private async getApiKey(): Promise<string | null> {
+    const result = await chrome.storage.local.get('openRouterApiKey');
+    return result.openRouterApiKey || null;
   }
 
   // ── Core Grounding Method ───────────────────────────────────────
@@ -144,27 +94,25 @@ class MolmoVisionClient {
     if (!this.initialized) await this.init();
     if (!this.config.enabled) return null;
 
-    const hf = getHFClient();
-    const enabled = await hf.isEnabled();
-    if (!enabled) return null;
-
-    const prompt =
-      `Point to the "${targetDescription}" element on this webpage screenshot. ` +
-      `Return the coordinates as <point x="X" y="Y" alt="${targetDescription}">` +
-      `where X and Y are percentage positions (0-100) relative to the image dimensions.`;
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
+      console.warn('[MolmoVision] OpenRouter API key not configured');
+      return null;
+    }
 
     const startTime = Date.now();
 
-    const result = await hf.chatCompletionWithImage(prompt, screenshotBase64, {
-      model: this.config.model,
-      maxTokens: this.config.maxTokens,
-      temperature: 0.1,
-      timeout: this.config.timeout,
-    });
+    const result = await groundWithMolmo(
+      screenshotBase64,
+      targetDescription,
+      apiKey,
+      viewportWidth,
+      viewportHeight,
+    );
 
-    if (!result.success || !result.text) {
+    if (!result) {
       this.consecutiveFailures++;
-      console.warn(`[MolmoVision] Grounding failed (${this.consecutiveFailures}/${this.maxConsecutiveFailures}):`, result.error);
+      console.warn(`[MolmoVision] Grounding failed (${this.consecutiveFailures}/${this.maxConsecutiveFailures})`);
       if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
         this.sessionDisabled = true;
         console.error('[MolmoVision] Too many consecutive failures — disabled for this session. Agent will use Gemini coords only.');
@@ -174,27 +122,16 @@ class MolmoVisionClient {
 
     // Reset failure counter on success
     this.consecutiveFailures = 0;
-    const raw = result.text;
     this.groundingCount++;
 
-    // Try structured point tag first (highest confidence)
-    const pointTag = parsePointTag(raw);
-    if (pointTag) {
-      const px = percentToPixels(pointTag, viewportWidth, viewportHeight);
-      console.log(`[MolmoVision] Grounded "${targetDescription}" → (${px.x}, ${px.y}) from point tag`);
-      return { ...px, confidence: 0.95, raw, latencyMs: Date.now() - startTime };
-    }
-
-    // Try loose coordinate formats (lower confidence)
-    const loose = parseLooseCoords(raw);
-    if (loose) {
-      const px = percentToPixels(loose, viewportWidth, viewportHeight);
-      console.log(`[MolmoVision] Grounded "${targetDescription}" → (${px.x}, ${px.y}) from loose coords`);
-      return { ...px, confidence: 0.7, raw, latencyMs: Date.now() - startTime };
-    }
-
-    console.warn(`[MolmoVision] Could not parse coordinates from: ${raw.slice(0, 200)}`);
-    return null;
+    console.log(`[MolmoVision] Grounded "${targetDescription}" → (${result.x}, ${result.y}) via OpenRouter`);
+    return {
+      x: result.x,
+      y: result.y,
+      confidence: result.confidence,
+      raw: result.raw,
+      latencyMs: Date.now() - startTime,
+    };
   }
 
   // ── Click Target Resolution ─────────────────────────────────────
