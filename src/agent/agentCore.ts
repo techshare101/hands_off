@@ -70,6 +70,7 @@ export class AgentCore {
   private ark: ArkVisionClient;
   private useArk = false;
   private useHF = false;
+  private molmoForceNext = false; // Set true when stuck-click detected → forces Molmo grounding
 
   constructor(config: AgentConfig, gemini: GeminiClient) {
     this.config = config;
@@ -671,12 +672,17 @@ export class AgentCore {
       // Step 7: Execute action (with execution memory tracking)
       this.stateMachine.send({ type: 'ACTION_APPROVED' });
 
-      // Molmo grounding: if this is a click and confidence is low, use Molmo to verify coordinates
+      // Molmo grounding: verify click coordinates via Molmo vision
+      // Fires on all clicks (threshold 0.98) or forced after stuck-click detection
       if (response.action.type === 'click' && response.action.target) {
+        const forceGround = this.molmoForceNext;
+        this.molmoForceNext = false; // Consume the flag
         try {
           const resolved = await molmoVision.resolveClickTarget(
             { x: response.action.x!, y: response.action.y!, confidence: response.confidence, target: response.action.target },
             screenshot,
+            1280, 800,
+            { forceGround },
           );
           if (resolved.overridden) {
             response.action.x = resolved.x;
@@ -792,7 +798,10 @@ export class AgentCore {
         const actionType = response.action.type;
         let recovery = '';
         if (actionType === 'click') {
-          recovery = 'Your clicks are not working. Try: 1) Press Enter instead of clicking. 2) Use Tab to focus the element then Enter. 3) Try completely different coordinates. 4) The element might be off-screen — scroll first.';
+          recovery = 'Your clicks are missing the target. Molmo vision will re-ground the element on the next attempt. If that fails: 1) Press Enter instead of clicking. 2) Use Tab to focus the element then Enter. 3) The element might be off-screen — scroll first.';
+          // Force Molmo grounding on the next click to find the real element
+          this.molmoForceNext = true;
+          console.log('[AgentCore] Stuck-click detected, forcing Molmo grounding on next attempt');
         } else if (actionType === 'type') {
           recovery = 'You are typing repeatedly. After typing, you MUST press Enter to submit. Use {"type": "press", "key": "Enter"} as your next action.';
         } else if (actionType === 'scroll') {

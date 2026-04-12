@@ -28,7 +28,7 @@ export interface MolmoConfig {
 
 const DEFAULT_CONFIG: MolmoConfig = {
   model: HF_MODELS.molmo,
-  confidenceThreshold: 0.85,
+  confidenceThreshold: 0.98, // Gemini self-reports ~0.9 even when wrong; run Molmo on nearly all clicks
   enabled: true,
   maxTokens: 256,
   timeout: 45000,
@@ -196,17 +196,24 @@ class MolmoVisionClient {
     screenshotBase64: string,
     viewportWidth = 1280,
     viewportHeight = 800,
+    options: { forceGround?: boolean } = {},
   ): Promise<{ x: number; y: number; source: 'gemini' | 'molmo'; overridden: boolean }> {
-    // Fast path: skip ALL async work when confidence is high or no target
-    if (!geminiTarget.target || geminiTarget.confidence >= (this.initialized ? this.config.confidenceThreshold : DEFAULT_CONFIG.confidenceThreshold)) {
+    // No target description → can't ground anything
+    if (!geminiTarget.target) {
+      console.log('[MolmoVision] Skip: no target description');
       return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
     }
 
     if (!this.initialized) await this.init();
 
-    // Re-check threshold after init (config may differ from default)
-    if (geminiTarget.confidence >= this.config.confidenceThreshold) {
+    // Skip only when confidence truly exceeds threshold AND not forced
+    if (!options.forceGround && geminiTarget.confidence >= this.config.confidenceThreshold) {
+      console.log(`[MolmoVision] Skip: confidence ${Math.round(geminiTarget.confidence * 100)}% >= ${Math.round(this.config.confidenceThreshold * 100)}% threshold`);
       return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
+    }
+
+    if (options.forceGround) {
+      console.log(`[MolmoVision] FORCE grounding for "${geminiTarget.target}" (stuck-click recovery)`);
     }
 
     // Try Molmo grounding

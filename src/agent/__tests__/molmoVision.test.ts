@@ -188,9 +188,9 @@ describe('MolmoVision', () => {
 
   // ── resolveClickTarget ────────────────────────────────────────
 
-  it('skips Molmo when Gemini confidence is high', async () => {
+  it('skips Molmo when Gemini confidence exceeds threshold (0.98)', async () => {
     const result = await molmoVision.resolveClickTarget(
-      { x: 100, y: 200, confidence: 0.95, target: 'button' },
+      { x: 100, y: 200, confidence: 0.99, target: 'button' },
       'base64screenshot',
     );
 
@@ -199,6 +199,49 @@ describe('MolmoVision', () => {
     expect(result.x).toBe(100);
     expect(result.y).toBe(200);
     expect(mockChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('runs Molmo even at high confidence when Gemini reports 0.95 (below 0.98 threshold)', async () => {
+    mockChatCompletion.mockResolvedValue({
+      success: true,
+      text: '<point x="40.0" y="20.0" alt="search bar">search bar</point>',
+      latencyMs: 200,
+    });
+
+    const result = await molmoVision.resolveClickTarget(
+      { x: 100, y: 200, confidence: 0.95, target: 'search bar' },
+      'base64screenshot',
+      1280,
+      800,
+    );
+
+    expect(result.source).toBe('molmo');
+    expect(result.overridden).toBe(true);
+    expect(result.x).toBe(512);  // 40% of 1280
+    expect(result.y).toBe(160);  // 20% of 800
+    expect(mockChatCompletion).toHaveBeenCalled();
+  });
+
+  it('forces Molmo grounding even at max confidence when forceGround is set', async () => {
+    mockChatCompletion.mockResolvedValue({
+      success: true,
+      text: '<point x="50.0" y="50.0" alt="submit">submit</point>',
+      latencyMs: 200,
+    });
+
+    const result = await molmoVision.resolveClickTarget(
+      { x: 100, y: 200, confidence: 0.99, target: 'submit button' },
+      'base64screenshot',
+      1280,
+      800,
+      { forceGround: true },
+    );
+
+    expect(result.source).toBe('molmo');
+    expect(result.overridden).toBe(true);
+    expect(result.x).toBe(640);  // 50% of 1280
+    expect(result.y).toBe(400);  // 50% of 800
+    expect(mockChatCompletion).toHaveBeenCalled();
   });
 
   it('overrides Gemini with Molmo on low confidence', async () => {
@@ -237,10 +280,12 @@ describe('MolmoVision', () => {
     expect(result.x).toBe(100);
   });
 
-  it('skips Molmo when no target description', async () => {
+  it('skips Molmo when no target description even with forceGround', async () => {
     const result = await molmoVision.resolveClickTarget(
       { x: 100, y: 200, confidence: 0.3 },
       'base64screenshot',
+      1280, 800,
+      { forceGround: true },
     );
 
     expect(result.source).toBe('gemini');
