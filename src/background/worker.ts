@@ -919,12 +919,14 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
     
     onComplete: (summary: string) => {
       telemetry.track('task_complete', { task: payload.task, summary });
+      if (currentTaskId) keepAlive.completeTask(currentTaskId).catch(() => {});
       notifySidePanel('AGENT_COMPLETE', { summary });
       currentAgent = null;
     },
     
     onError: (error: string) => {
       telemetry.track('task_error', { task: payload.task, error });
+      if (currentTaskId) keepAlive.completeTask(currentTaskId).catch(() => {});
       notifySidePanel('AGENT_ERROR', { error });
       currentAgent = null;
     },
@@ -938,6 +940,7 @@ async function startTask(payload: { task: string; taskType?: string }): Promise<
   // Fire-and-forget — don't await, or the message handler blocks forever
   currentAgent.start().catch((error) => {
     console.error('[Worker] Agent start failed:', error);
+    if (currentTaskId) keepAlive.completeTask(currentTaskId).catch(() => {});
     notifySidePanel('AGENT_ERROR', { 
       error: error instanceof Error ? error.message : 'Failed to start agent' 
     });
