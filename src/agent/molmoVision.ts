@@ -253,6 +253,14 @@ class MolmoVisionClient {
     return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
   }
 
+  // ── Session Management ──────────────────────────────────────────
+
+  resetSession(): void {
+    this.consecutiveFailures = 0;
+    this.sessionDisabled = false;
+    console.log('[MolmoVision] Session reset — circuit breaker cleared');
+  }
+
   // ── Stats ──────────────────────────────────────────────────────
 
   getStats(): { groundingCount: number; overrideCount: number; overrideRate: number } {
