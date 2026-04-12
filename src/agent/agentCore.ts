@@ -71,6 +71,8 @@ export class AgentCore {
   private useArk = false;
   private useHF = false;
   private molmoForceNext = false; // Set true when stuck-click detected → forces Molmo grounding
+  private consecutiveNoProgress = 0; // Tracks iterations where page doesn't change
+  private lastScreenshotHash = ''; // Simple hash to detect identical screenshots
 
   constructor(config: AgentConfig, gemini: GeminiClient) {
     this.config = config;
@@ -325,7 +327,22 @@ export class AgentCore {
       const interactiveElements = screenshotData.interactiveElements || [];
       
       this.usageTracker.screenshotsThisTask++;
-      
+
+      // No-progress detection: hash the screenshot to detect if page is unchanged
+      const screenshotHash = screenshot.length.toString() + screenshot.slice(-200);
+      if (screenshotHash === this.lastScreenshotHash) {
+        this.consecutiveNoProgress++;
+        if (this.consecutiveNoProgress >= 5) {
+          console.error(`[AgentCore] HARD STOP: Page unchanged for ${this.consecutiveNoProgress} iterations — agent is stuck`);
+          this.emitStep('error', `Agent stuck: page has not changed for ${this.consecutiveNoProgress} iterations. Stopping to prevent infinite loop.`);
+          this.stateMachine.send({ type: 'ERROR', message: `Stuck in loop — page unchanged for ${this.consecutiveNoProgress} iterations` });
+          break;
+        }
+      } else {
+        this.consecutiveNoProgress = 0;
+      }
+      this.lastScreenshotHash = screenshotHash;
+
       // Send SCREENSHOT_READY only on first iteration to transition from 'initializing' to 'seeing'
       if (firstIteration) {
         this.stateMachine.send({ type: 'SCREENSHOT_READY', screenshot });

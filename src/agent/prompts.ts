@@ -113,6 +113,13 @@ Always respond with valid JSON:
 - Never auto-fill passwords or payment info
 - If stuck for 3+ iterations on same element → ask for help
 
+## HARD EXIT RULES
+- If ANY action fails or returns an error after 2 consecutive attempts, STOP immediately
+- Report the exact error and what you tried. Set isComplete: true with a failure summary
+- Do NOT silently retry the same action more than twice
+- If the page looks identical after 3 actions, you are stuck. Set isComplete: true and explain what went wrong
+- NEVER loop indefinitely — it is better to stop and report failure than to keep trying
+
 ## COMMON PATTERNS
 - **Search**: Click search box → type query → IMMEDIATELY use {"type": "press", "key": "Enter"} to submit. NEVER look for a search button — most sites (Google, GitHub, YouTube, Amazon) submit on Enter key.
 - **Form submission**: Fill fields → click Submit button

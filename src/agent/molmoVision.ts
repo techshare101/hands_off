@@ -99,6 +99,9 @@ class MolmoVisionClient {
   private initialized = false;
   private groundingCount = 0;
   private overrideCount = 0;
+  private consecutiveFailures = 0;
+  private readonly maxConsecutiveFailures = 3;
+  private sessionDisabled = false;
 
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -160,10 +163,17 @@ class MolmoVisionClient {
     });
 
     if (!result.success || !result.text) {
-      console.warn('[MolmoVision] Grounding failed:', result.error);
+      this.consecutiveFailures++;
+      console.warn(`[MolmoVision] Grounding failed (${this.consecutiveFailures}/${this.maxConsecutiveFailures}):`, result.error);
+      if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+        this.sessionDisabled = true;
+        console.error('[MolmoVision] Too many consecutive failures — disabled for this session. Agent will use Gemini coords only.');
+      }
       return null;
     }
 
+    // Reset failure counter on success
+    this.consecutiveFailures = 0;
     const raw = result.text;
     this.groundingCount++;
 
@@ -201,6 +211,12 @@ class MolmoVisionClient {
     // No target description → can't ground anything
     if (!geminiTarget.target) {
       console.log('[MolmoVision] Skip: no target description');
+      return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
+    }
+
+    // Circuit breaker: too many consecutive failures → stop calling Molmo
+    if (this.sessionDisabled) {
+      console.log('[MolmoVision] Skip: session disabled after repeated failures');
       return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
     }
 
