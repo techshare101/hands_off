@@ -1,9 +1,9 @@
 // 🤗 HUGGING FACE CLIENT — Inference API integration
 // Provides access to HF hosted models for vision, OCR, embeddings, and classification
 // Free tier: ~30k tokens/day, Pro: unlimited
-// All requests go through https://router.huggingface.co/models/{model}
+// All requests go through https://router.huggingface.co/hf-inference/models/{model}
 
-const HF_API_BASE = 'https://router.huggingface.co/models';
+const HF_API_BASE = 'https://router.huggingface.co/hf-inference/models';
 const STORAGE_KEY_TOKEN = 'hf_api_token';
 const STORAGE_KEY_ENABLED = 'hf_enabled';
 

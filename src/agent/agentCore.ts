@@ -274,6 +274,12 @@ export class AgentCore {
         continue;
       }
 
+      // Handle waiting_input state — stop looping until user responds
+      if (state === 'waiting_input') {
+        await this.sleep(1000);
+        continue;
+      }
+
       // Handle terminal states
       if (state === 'complete' || state === 'error' || state === 'idle') {
         break;
