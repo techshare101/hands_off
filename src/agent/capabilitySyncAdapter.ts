@@ -155,16 +155,27 @@ class CapabilitySyncAdapterEngine {
   private async syncZapierActions(apiKey: string): Promise<void> {
     if (!apiKey) return;
 
+    // Sync the key to zapierNLA's own storage so direct calls work too
+    await zapierNLA.setApiKey(apiKey);
+
     try {
       const actions = await zapierNLA.listActions(apiKey);
 
       if (actions.length === 0) {
+        // Could be 401 (bad key) or no exposed actions
+        // Validate the key to distinguish
+        const valid = await zapierNLA.validate(apiKey);
+        if (!valid) {
+          console.warn('[CapabilitySyncAdapter] Zapier API key is invalid or expired — update at nla.zapier.com/credentials');
+        }
         // Register static fallback tools so routing still works
         mcpClient.registerVirtualTool({
           serverId: 'connecthub_zapier',
           serverName: 'Zapier',
           name: 'trigger_zap',
-          description: 'Zapier: Trigger a Zap action (no exposed actions found — configure at nla.zapier.com)',
+          description: valid
+            ? 'Zapier: Trigger a Zap action (no exposed actions found — configure at nla.zapier.com)'
+            : 'Zapier: API key invalid — reconnect with a valid key from nla.zapier.com/credentials',
           inputSchema: {},
         });
         return;
