@@ -155,8 +155,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
       ark_enabled: arkEnabled,
       ark_endpoint: arkEndpoint,
       ark_model: arkModel,
-      hf_api_token: hfToken,
-      hf_enabled: hfEnabled,
+      molmo_openrouter_key: hfToken,
+      molmo_enabled: hfEnabled,
       composio_api_key: composioKey,
       composio_enabled: composioEnabled,
       ...keys,
@@ -319,7 +319,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
               </button>
             </div>
             <p className="text-xs text-handoff-muted mb-3">
-              Local vision engine via Ollama. Uses multimodal models (Gemma4, LLaVA, Molmo) for screenshot analysis. Falls back to selected LLM if unreachable.
+              Local vision engine via Ollama. Uses multimodal models (Gemma4, LLaVA) for screenshot analysis. Falls back to selected LLM if unreachable.
             </p>
             {arkEnabled && (
               <div className="space-y-2">
@@ -358,12 +358,12 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
             )}
           </div>
 
-          {/* HuggingFace Vision */}
+          {/* Molmo Vision (OpenRouter) */}
           <div className="border-t border-handoff-dark pt-4">
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-white flex items-center gap-2">
-                <Brain className="w-4 h-4 text-amber-400" />
-                HuggingFace Vision
+                <Brain className="w-4 h-4 text-pink-400" />
+                Molmo Vision
               </label>
 
               <button
@@ -374,7 +374,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
               </button>
             </div>
             <p className="text-xs text-handoff-muted mb-3">
-              ML-powered element detection, OCR, and semantic skill matching via HuggingFace Inference API.
+              AI-powered UI element grounding via Molmo-2-8B on OpenRouter. Provides pixel-precise click coordinates when the main LLM's vision is uncertain.
             </p>
             {hfEnabled && (
               <div className="space-y-2">
@@ -383,8 +383,8 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                     type="password"
                     value={hfToken}
                     onChange={(e) => setHfToken(e.target.value)}
-                    placeholder="hf_..."
-                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    placeholder="sk-or-..."
+                    className="flex-1 bg-handoff-dark text-white placeholder-handoff-muted rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500/50"
                   />
                   <button
                     onClick={checkHFConnection}
@@ -392,17 +392,17 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                     className={`px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
                       hfStatus === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
                       hfStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
-                      hfStatus === 'checking' ? 'bg-amber-500/20 text-amber-400 animate-pulse' :
+                      hfStatus === 'checking' ? 'bg-pink-500/20 text-pink-400 animate-pulse' :
                       'bg-handoff-dark text-handoff-muted hover:text-white'
                     }`}
                   >
-                    {hfStatus === 'checking' ? 'Testing (may take ~15s)...' :
+                    {hfStatus === 'checking' ? 'Testing...' :
                      hfStatus === 'online' ? 'Connected' :
                      hfStatus === 'offline' ? 'Failed' : 'Test'}
                   </button>
                 </div>
                 <p className="text-[10px] text-handoff-muted">
-                  Get your free token from <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">huggingface.co/settings/tokens</a>
+                  Get your key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-pink-400 hover:underline">openrouter.ai/keys</a>
                 </p>
               </div>
             )}

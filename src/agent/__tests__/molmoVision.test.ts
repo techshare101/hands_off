@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock chrome.storage ────────────────────────────────────────────
 let storageData: Record<string, unknown> = {
-  openRouterApiKey: 'sk-or-test-key', // Default: OpenRouter enabled
+  molmo_enabled: true,
+  molmo_openrouter_key: 'sk-or-test-key', // Default: Molmo enabled
 };
 
 vi.stubGlobal('chrome', {
@@ -37,7 +38,7 @@ import { molmoVision } from '../molmoVision';
 describe('MolmoVision', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    storageData = { openRouterApiKey: 'sk-or-test-key' };
+    storageData = { molmo_enabled: true, molmo_openrouter_key: 'sk-or-test-key' };
     molmoVision.resetSession();
   });
 
@@ -85,8 +86,22 @@ describe('MolmoVision', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null when OpenRouter API key is not configured', async () => {
-    storageData = {}; // No API key
+  it('returns null when Molmo is disabled', async () => {
+    storageData = { molmo_enabled: false, molmo_openrouter_key: 'sk-or-test-key' };
+
+    const result = await molmoVision.groundElement(
+      'base64screenshot',
+      'search bar',
+      1280,
+      800,
+    );
+
+    expect(result).toBeNull();
+    expect(mockGroundWithMolmo).not.toHaveBeenCalled();
+  });
+
+  it('returns null when Molmo OpenRouter key is not configured', async () => {
+    storageData = { molmo_enabled: true }; // No API key
 
     const result = await molmoVision.groundElement(
       'base64screenshot',

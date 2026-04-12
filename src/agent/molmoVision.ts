@@ -73,14 +73,14 @@ class MolmoVisionClient {
   async isEnabled(): Promise<boolean> {
     if (!this.initialized) await this.init();
     if (!this.config.enabled) return false;
-    // Check for OpenRouter API key
-    const result = await chrome.storage.local.get('openRouterApiKey');
-    return !!result.openRouterApiKey;
+    const result = await chrome.storage.local.get(['molmo_enabled', 'molmo_openrouter_key']);
+    return !!result.molmo_enabled && !!result.molmo_openrouter_key;
   }
 
   private async getApiKey(): Promise<string | null> {
-    const result = await chrome.storage.local.get('openRouterApiKey');
-    return result.openRouterApiKey || null;
+    const result = await chrome.storage.local.get(['molmo_openrouter_key', 'molmo_enabled']);
+    if (!result.molmo_enabled) return null;
+    return result.molmo_openrouter_key || null;
   }
 
   // ── Core Grounding Method ───────────────────────────────────────
