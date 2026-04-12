@@ -439,44 +439,72 @@ async function performType(text: string): Promise<void> {
     return;
   }
 
-  // Clear existing content if it's an input
+  // For standard input/textarea: use direct value + InputEvent
+  // Character-by-character keydown causes double-typing on sites like YouTube
+  // that handle keydown internally and insert characters themselves.
   if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
+    // Clear existing content
     activeElement.value = '';
     activeElement.dispatchEvent(new Event('input', { bubbles: true }));
-  }
+    await sleep(20);
 
-  // Type character by character for realistic input
-  for (const char of text) {
-    // KeyboardEvent
-    const keydownEvent = new KeyboardEvent('keydown', {
-      key: char,
-      code: `Key${char.toUpperCase()}`,
-      bubbles: true,
-      cancelable: true,
-    });
-    activeElement.dispatchEvent(keydownEvent);
+    // Use execCommand first — best compatibility with React/Vue/Angular frameworks
+    activeElement.focus();
+    document.execCommand('selectAll', false);
+    document.execCommand('insertText', false, text);
 
-    // Input event
-    if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
-      activeElement.value += char;
-      activeElement.dispatchEvent(new Event('input', { bubbles: true }));
-    } else if (activeElement.isContentEditable) {
-      document.execCommand('insertText', false, char);
+    // If execCommand didn't work (some browsers/contexts), fall back to direct set
+    if (activeElement.value !== text) {
+      console.log('[HandOff] execCommand failed, using direct value set');
+      activeElement.value = text;
+      const inputEvent = new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: text,
+      });
+      activeElement.dispatchEvent(inputEvent);
     }
 
-    const keyupEvent = new KeyboardEvent('keyup', {
-      key: char,
-      code: `Key${char.toUpperCase()}`,
-      bubbles: true,
-      cancelable: true,
-    });
-    activeElement.dispatchEvent(keyupEvent);
-
-    await sleep(30 + Math.random() * 50); // Realistic typing speed
+    // Trigger change event
+    activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+    console.log('[HandOff] Typed into input:', activeElement.value.slice(0, 50));
+    return;
   }
 
-  // Trigger change event
+  // For contentEditable elements: type character by character
+  if (activeElement.isContentEditable) {
+    for (const char of text) {
+      const keydownEvent = new KeyboardEvent('keydown', {
+        key: char,
+        code: `Key${char.toUpperCase()}`,
+        bubbles: true,
+        cancelable: true,
+      });
+      activeElement.dispatchEvent(keydownEvent);
+
+      document.execCommand('insertText', false, char);
+
+      const keyupEvent = new KeyboardEvent('keyup', {
+        key: char,
+        code: `Key${char.toUpperCase()}`,
+        bubbles: true,
+        cancelable: true,
+      });
+      activeElement.dispatchEvent(keyupEvent);
+
+      await sleep(30 + Math.random() * 50);
+    }
+    activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+    console.log('[HandOff] Typed into contentEditable');
+    return;
+  }
+
+  // Fallback for other elements: try execCommand
+  activeElement.focus();
+  document.execCommand('insertText', false, text);
   activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+  console.log('[HandOff] Typed via fallback execCommand');
 }
 
 async function performScroll(direction: 'up' | 'down' | 'left' | 'right'): Promise<void> {
