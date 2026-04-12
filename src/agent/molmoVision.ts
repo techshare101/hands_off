@@ -197,15 +197,15 @@ class MolmoVisionClient {
     viewportWidth = 1280,
     viewportHeight = 800,
   ): Promise<{ x: number; y: number; source: 'gemini' | 'molmo'; overridden: boolean }> {
-    if (!this.initialized) await this.init();
-
-    // If Gemini is confident enough, skip Molmo
-    if (geminiTarget.confidence >= this.config.confidenceThreshold) {
+    // Fast path: skip ALL async work when confidence is high or no target
+    if (!geminiTarget.target || geminiTarget.confidence >= (this.initialized ? this.config.confidenceThreshold : DEFAULT_CONFIG.confidenceThreshold)) {
       return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
     }
 
-    // No target description → can't ground
-    if (!geminiTarget.target) {
+    if (!this.initialized) await this.init();
+
+    // Re-check threshold after init (config may differ from default)
+    if (geminiTarget.confidence >= this.config.confidenceThreshold) {
       return { x: geminiTarget.x, y: geminiTarget.y, source: 'gemini', overridden: false };
     }
 

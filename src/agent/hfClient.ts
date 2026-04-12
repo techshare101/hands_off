@@ -505,8 +505,10 @@ class HFInferenceClient {
         this.requestCount++;
 
         if (response.status === 503) {
-          // Model is loading — wait and retry
-          const waitMs = attempt * 3000;
+          // Model is loading — exponential backoff with jitter
+          const baseMs = Math.pow(2, attempt) * 500;
+          const jitter = Math.random() * baseMs;
+          const waitMs = Math.round(baseMs + jitter);
           console.log(`[HF] Model ${model} loading, retry ${attempt}/${maxAttempts} in ${waitMs}ms`);
           await new Promise(r => setTimeout(r, waitMs));
           continue;

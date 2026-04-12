@@ -166,6 +166,9 @@ export class AgentCore {
     this.useHF = await hfClient.isEnabled().catch(() => false);
     if (this.useHF) {
       this.emitStep('learning', `HuggingFace vision pipeline active`);
+      // Pre-warm Molmo in background — triggers HF model loading so
+      // the first grounding call doesn't hit a cold start
+      molmoVision.init().catch(() => {});
     }
 
     // Check if Ark Vision is enabled and server is reachable
