@@ -451,14 +451,20 @@ export class ConnectionManager {
           const res = await fetch('https://nla.zapier.com/api/v1/exposed/', {
             headers: { 'x-api-key': key, Accept: 'application/json' },
           });
-          if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            console.error(`[ConnectHub] Zapier validation failed: HTTP ${res.status} — ${body.slice(0, 300)}`);
+          if (res.status === 401 || res.status === 403) {
+            console.error(`[ConnectHub] Zapier key rejected: HTTP ${res.status}`);
+            return false;
           }
-          return res.ok;
+          if (!res.ok) {
+            // NLA service might be down/deprecated — don't reject the key
+            console.warn(`[ConnectHub] Zapier NLA endpoint returned ${res.status} — accepting key (service may be unavailable)`);
+            return true;
+          }
+          return true;
         } catch (e) {
-          console.error('[ConnectHub] Zapier validation error:', e);
-          return false;
+          // Network error — NLA endpoint unreachable, accept the key
+          console.warn('[ConnectHub] Zapier NLA endpoint unreachable — accepting key:', e);
+          return true;
         }
       }
 
