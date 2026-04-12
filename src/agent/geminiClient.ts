@@ -210,6 +210,12 @@ Analyze the screenshot and determine the next action. Respond with valid JSON on
       // Parse and validate response
       const parsed = this.parseResponse(textContent);
       if (!parsed) {
+        // Fallback: if raw text signals task completion, synthesize a valid response
+        const completionFallback = this.tryExtractCompletion(textContent);
+        if (completionFallback) {
+          console.log('[GeminiClient] Parse failed but detected completion signal in raw text');
+          return { success: true, response: completionFallback, rawText: textContent, latencyMs: Date.now() - startTime };
+        }
         return { 
           success: false, 
           error: 'Invalid response format from Gemini',
@@ -219,6 +225,20 @@ Analyze the screenshot and determine the next action. Respond with valid JSON on
 
       const validated = validateGeminiResponse(parsed);
       if (!validated) {
+        // Fallback: if validation failed but isComplete was present, try to recover
+        if ((parsed as Record<string, unknown>).isComplete === true || (parsed as Record<string, unknown>).is_complete === true) {
+          console.log('[GeminiClient] Validation failed but isComplete=true, recovering');
+          const recovered: GeminiResponse = {
+            observation: String((parsed as Record<string, unknown>).observation || 'Task appears complete'),
+            reasoning: String((parsed as Record<string, unknown>).reasoning || 'Task completed'),
+            action: null,
+            confidence: Number((parsed as Record<string, unknown>).confidence) || 0.8,
+            requiresApproval: false,
+            isComplete: true,
+            nextStep: '',
+          };
+          return { success: true, response: recovered, rawText: textContent, latencyMs: Date.now() - startTime };
+        }
         return { 
           success: false, 
           error: 'Response validation failed',
@@ -279,24 +299,93 @@ Title: ${title || 'Unknown'}`;
   }
 
   private parseResponse(text: string): Record<string, unknown> | null {
+    // Strategy 1: Extract from ```json ... ``` or ``` ... ``` code fences
+    const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) {
+      const parsed = this.tryParseJSON(fenceMatch[1]);
+      if (parsed) return parsed;
+    }
+
+    // Strategy 2: Find balanced JSON object(s) and try each
+    const candidates = this.extractJSONObjects(text);
+    for (const candidate of candidates) {
+      const parsed = this.tryParseJSON(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    }
+
+    // Strategy 3: Try the entire text as JSON (Gemini sometimes returns bare JSON)
+    const directParsed = this.tryParseJSON(text.trim());
+    if (directParsed) return directParsed;
+
+    console.error('[GeminiClient] Failed to parse response:', text.slice(0, 500));
+    return null;
+  }
+
+  private tryParseJSON(text: string): Record<string, unknown> | null {
     try {
-      // Try to extract JSON from the response
-      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[1]);
-      }
-
-      // Try to find raw JSON object
-      const objectMatch = text.match(/\{[\s\S]*\}/);
-      if (objectMatch) {
-        return JSON.parse(objectMatch[0]);
-      }
-
+      // Strip trailing commas before } or ] (common Gemini mistake)
+      const cleaned = text.replace(/,\s*([}\]])/g, '$1');
+      const result = JSON.parse(cleaned);
+      if (result && typeof result === 'object') return result;
       return null;
     } catch {
-      console.error('[GeminiClient] Failed to parse response:', text);
       return null;
     }
+  }
+
+  private tryExtractCompletion(text: string): GeminiResponse | null {
+    const lower = text.toLowerCase();
+    const completionSignals = [
+      'task is complete',
+      'task is done',
+      'task has been completed',
+      'task completed',
+      'successfully completed',
+      'i have completed',
+      'the task is finished',
+      'all done',
+      '"iscomplete": true',
+      '"iscomplete":true',
+      '"is_complete": true',
+      '"is_complete":true',
+    ];
+
+    const isCompletion = completionSignals.some(signal => lower.includes(signal));
+    if (!isCompletion) return null;
+
+    // Extract a summary from the raw text (first meaningful line)
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 10 && !l.startsWith('```') && !l.startsWith('{'));
+    const summary = lines[0] || 'Task completed successfully';
+
+    return {
+      observation: summary,
+      reasoning: 'Task completion detected from response text',
+      action: null,
+      confidence: 0.8,
+      requiresApproval: false,
+      isComplete: true,
+      nextStep: '',
+    };
+  }
+
+  private extractJSONObjects(text: string): string[] {
+    const results: string[] = [];
+    let depth = 0;
+    let start = -1;
+
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (text[i] === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          results.push(text.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+    return results;
   }
 
   private sleep(ms: number): Promise<void> {
