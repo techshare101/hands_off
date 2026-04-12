@@ -1,9 +1,11 @@
 // 🤗 HUGGING FACE CLIENT — Inference API integration
 // Provides access to HF hosted models for vision, OCR, embeddings, and classification
 // Free tier: ~30k tokens/day, Pro: unlimited
-// All requests go through https://router.huggingface.co/hf-inference/models/{model}
-
+// HF Inference API base URLs
+// For model-specific endpoints: /hf-inference/models/{model}
+// For OpenAI-compatible chat: /hf-inference/v1/chat/completions (model in body)
 const HF_API_BASE = 'https://router.huggingface.co/hf-inference/models';
+const HF_CHAT_BASE = 'https://router.huggingface.co/hf-inference';
 const STORAGE_KEY_TOKEN = 'hf_api_token';
 const STORAGE_KEY_ENABLED = 'hf_enabled';
 
@@ -488,7 +490,7 @@ class HFInferenceClient {
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
         const response = await fetch(
-          `${HF_API_BASE}/${model}/v1/chat/completions`,
+          `${HF_CHAT_BASE}/v1/chat/completions`,
           {
             method: 'POST',
             headers: {
