@@ -451,8 +451,13 @@ export class ConnectionManager {
           const res = await fetch('https://nla.zapier.com/api/v1/exposed/', {
             headers: { 'x-api-key': key, Accept: 'application/json' },
           });
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            console.error(`[ConnectHub] Zapier validation failed: HTTP ${res.status} — ${body.slice(0, 300)}`);
+          }
           return res.ok;
-        } catch {
+        } catch (e) {
+          console.error('[ConnectHub] Zapier validation error:', e);
           return false;
         }
       }
